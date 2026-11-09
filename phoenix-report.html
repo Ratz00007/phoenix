@@ -1,0 +1,792 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phoenix v0.3.0 WAL & Wind Tunnel Forensic Report</title>
+  <style>
+    :root {
+      --bg: #090d16;
+      --surface: #111827;
+      --surface-hover: #1f293d;
+      --border: #1f293d;
+      --border-accent: #374151;
+      --text: #f3f4f6;
+      --text-muted: #9ca3af;
+      --accent: #6366f1;
+      --accent-glow: rgba(99, 102, 241, 0.25);
+      --emerald: #10b981;
+      --emerald-bg: rgba(16, 185, 129, 0.12);
+      --emerald-border: rgba(16, 185, 129, 0.35);
+      --cyan: #06b6d4;
+      --cyan-bg: rgba(6, 182, 212, 0.12);
+      --blue: #3b82f6;
+      --blue-bg: rgba(59, 130, 246, 0.12);
+      --amber: #f59e0b;
+      --amber-bg: rgba(245, 158, 11, 0.12);
+      --amber-border: rgba(245, 158, 11, 0.4);
+      --rose: #ef4444;
+      --rose-bg: rgba(239, 68, 68, 0.12);
+      --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      line-height: 1.5;
+      padding: 32px 24px;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    /* Header */
+    .header {
+      background: linear-gradient(135deg, rgba(17, 24, 39, 0.95), rgba(31, 41, 55, 0.75));
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px 32px;
+      margin-bottom: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+    }
+
+    .header-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .header-icon {
+      font-size: 36px;
+      background: linear-gradient(135deg, #f59e0b, #ef4444);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      filter: drop-shadow(0 0 12px rgba(245, 158, 11, 0.4));
+    }
+
+    .header-title {
+      font-size: 22px;
+      font-weight: 700;
+      color: #fff;
+      letter-spacing: -0.02em;
+    }
+
+    .header-sub {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 4px;
+      font-family: var(--font-mono);
+    }
+
+    .header-meta {
+      text-align: right;
+      font-size: 12px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+
+    /* KPI Grid */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    .kpi-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px;
+      transition: transform 0.2s ease, border-color 0.2s ease;
+    }
+
+    .kpi-card:hover {
+      transform: translateY(-2px);
+      border-color: var(--border-accent);
+    }
+
+    .kpi-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 8px;
+    }
+
+    .kpi-value {
+      font-size: 32px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: #fff;
+    }
+
+    .kpi-value.kpi-verdict {
+      color: var(--emerald);
+      text-shadow: 0 0 14px rgba(16, 185, 129, 0.4);
+    }
+
+    .kpi-value.kpi-guard {
+      color: var(--emerald);
+    }
+
+    /* Section Styling */
+    .section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px 28px;
+      margin-bottom: 28px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+    }
+
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 18px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .section-title {
+      font-size: 17px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .section-badge {
+      font-size: 12px;
+      font-family: var(--font-mono);
+      background: var(--accent-glow);
+      color: #a5b4fc;
+      padding: 3px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(165, 180, 252, 0.3);
+    }
+
+    /* ddmin Shrink Visualization */
+    .ddmin-meta-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 20px;
+      background: rgba(0, 0, 0, 0.25);
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-size: 13px;
+      font-family: var(--font-mono);
+    }
+
+    .ddmin-stat-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .ddmin-stat-pill strong {
+      color: #fff;
+    }
+
+    .trace-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .trace-step {
+      background: rgba(17, 24, 39, 0.6);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      transition: background 0.15s ease;
+    }
+
+    .trace-step-pruned {
+      opacity: 0.55;
+    }
+
+    .trace-step-highlight {
+      background: linear-gradient(90deg, rgba(245, 158, 11, 0.12), rgba(239, 68, 68, 0.08));
+      border: 1px solid var(--amber-border);
+      box-shadow: 0 0 16px rgba(245, 158, 11, 0.2);
+      opacity: 1;
+    }
+
+    .step-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 13px;
+    }
+
+    .step-index {
+      font-family: var(--font-mono);
+      font-weight: 700;
+      color: var(--text-muted);
+      width: 28px;
+    }
+
+    .step-tool {
+      font-family: var(--font-mono);
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .step-badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+    }
+
+    .step-badge-highlight {
+      background: var(--amber-bg);
+      color: var(--amber);
+      border: 1px solid var(--amber-border);
+    }
+
+    .step-badge-pruned {
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text-muted);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .step-mut-badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      margin-left: auto;
+    }
+
+    .mut-badge-true {
+      background: var(--rose-bg);
+      color: var(--rose);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      font-weight: 700;
+    }
+
+    .mut-badge-false {
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text-muted);
+    }
+
+    .step-args {
+      margin-top: 4px;
+      font-size: 12px;
+      font-family: var(--font-mono);
+      color: #94a3b8;
+      overflow-x: auto;
+    }
+
+    /* Wind Tunnel Grid */
+    .checks-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 14px;
+    }
+
+    .check-card {
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+    }
+
+    .check-card-pass {
+      border-left: 4px solid var(--emerald);
+    }
+
+    .check-card-fail {
+      border-left: 4px solid var(--rose);
+    }
+
+    .check-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .check-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .check-detail {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      line-height: 1.4;
+    }
+
+    .check-evidence {
+      margin-top: 6px;
+      font-size: 11px;
+      color: #fca5a5;
+      font-family: var(--font-mono);
+      background: rgba(239, 68, 68, 0.08);
+      padding: 4px 8px;
+      border-radius: 4px;
+    }
+
+    /* Ledger Table */
+    .table-wrap {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      text-align: left;
+    }
+
+    th {
+      background: rgba(0, 0, 0, 0.3);
+      padding: 10px 14px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+    }
+
+    td {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+
+    tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .code-cell {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: #94a3b8;
+    }
+
+    .text-muted {
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+
+    .empty-table {
+      text-align: center;
+      padding: 28px;
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    /* Status Badges */
+    .badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      letter-spacing: 0.03em;
+    }
+
+    .badge-ok {
+      background: var(--emerald-bg);
+      color: var(--emerald);
+      border: 1px solid var(--emerald-border);
+    }
+
+    .badge-recovered {
+      background: rgba(139, 92, 246, 0.15);
+      color: #c084fc;
+      border: 1px solid rgba(192, 132, 252, 0.35);
+    }
+
+    .badge-resumed {
+      background: var(--blue-bg);
+      color: #60a5fa;
+      border: 1px solid rgba(96, 165, 250, 0.35);
+    }
+
+    .badge-deduped {
+      background: var(--cyan-bg);
+      color: var(--cyan);
+      border: 1px solid rgba(6, 182, 212, 0.35);
+    }
+
+    .badge-intent {
+      background: var(--amber-bg);
+      color: var(--amber);
+      border: 1px solid var(--amber-border);
+    }
+
+    .badge-error {
+      background: var(--rose-bg);
+      color: var(--rose);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+    }
+
+    .badge-default {
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text-muted);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    /* Footer */
+    .footer {
+      text-align: center;
+      margin-top: 36px;
+      font-size: 12px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-title-wrap">
+        <div class="header-icon">&#x1F525;</div>
+        <div>
+          <h1 class="header-title">Phoenix v0.3.0 Transactional WAL Hypervisor &amp; ReplayLab Wind Tunnel Report</h1>
+          <div class="header-sub">Crash-Proof SQLite WAL Ledger &bull; Pre/Post State Fingerprinting &bull; Zeller ddmin Oracle</div>
+        </div>
+      </div>
+      <div class="header-meta">
+        <div>Generated: 2026-11-08 23:38:07 UTC</div>
+        <div>Storage: C:\Users\ratin\Downloads\Hermes plugn compition\phoenix\phoenix-demo-7hgn2kdj\data\phoenix.db</div>
+      </div>
+    </header>
+
+    <!-- KPI Grid -->
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">Committed Ops</div>
+        <div class="kpi-value">3</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Deduped Retries</div>
+        <div class="kpi-value">0</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">In-Flight Stranded</div>
+        <div class="kpi-value">0</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Idempotency Guard</div>
+        <div class="kpi-value kpi-guard">ON</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">G2 Kill-Gate Verdict</div>
+        <div class="kpi-value kpi-verdict">6/6 PASS</div>
+      </div>
+    </div>
+
+    <!-- Section 1: Zeller ddmin Shrink Visualization -->
+    <section class="section">
+      <div class="section-header">
+        <h2 class="section-title">
+          <span>&#x26A1;</span> Zeller's ddmin Shrink Visualization (Algorithmic Minimizer)
+        </h2>
+        <span class="section-badge">11 Steps &rarr; 1 Minimal Counterexample</span>
+      </div>
+
+      <div class="ddmin-meta-bar">
+        <div class="ddmin-stat-pill">Trace: <strong>CUSTOMER_42_TRACE</strong></div>
+        <div class="ddmin-stat-pill">Initial Steps: <strong>11</strong></div>
+        <div class="ddmin-stat-pill">Minimal Steps: <strong>1</strong></div>
+        <div class="ddmin-stat-pill">Execution: <strong>&lt;2ms (85.61ms)</strong></div>
+        <div class="ddmin-stat-pill">LLM Calls: <strong>0 (Deterministic Oracle)</strong></div>
+        <div class="ddmin-stat-pill">Replay Runs: <strong>7</strong></div>
+      </div>
+
+      <div class="trace-list">
+        
+        <div class="trace-step trace-step-pruned">
+          <div class="step-header">
+            <span class="step-index">#1</span>
+            <span class="step-tool">crm.lookup</span>
+            <span class="step-badge step-badge-pruned">PRUNED BY DDMIN</span>
+            <span class="step-mut-badge mut-badge-false">MUTATES: FALSE</span>
+          </div>
+          <div class="step-args"><code>{&quot;customer_id&quot;: 42}</code></div>
+        </div>
+        
+
+        <div class="trace-step trace-step-pruned">
+          <div class="step-header">
+            <span class="step-index">#2</span>
+            <span class="step-tool">crm.check_quota</span>
+            <span class="step-badge step-badge-pruned">PRUNED BY DDMIN</span>
+            <span class="step-mut-badge mut-badge-false">MUTATES: FALSE</span>
+          </div>
+          <div class="step-args"><code>{&quot;customer_id&quot;: 42, &quot;seats&quot;: 25}</code></div>
+        </div>
+        
+
+        <div class="trace-step trace-step-pruned">
+          <div class="step-header">
+            <span class="step-index">#3</span>
+            <span class="step-tool">billing.preview_invoice</span>
+            <span class="step-badge step-badge-pruned">PRUNED BY DDMIN</span>
+            <span class="step-mut-badge mut-badge-false">MUTATES: FALSE</span>
+          </div>
+          <div class="step-args"><code>{&quot;customer_id&quot;: 42, &quot;plan&quot;: &quot;enterprise&quot;}</code></div>
+        </div>
+        
+
+        <div class="trace-step trace-step-pruned">
+          <div class="step-header">
+            <span class="step-index">#4</span>
+            <span class="step-tool">crm.verify_address</span>
+            <span class="step-badge step-badge-pruned">PRUNED BY DDMIN</span>
+            <span class="step-mut-badge mut-badge-false">MUTATES: FALSE</span>
+          </div>
+          <div class="step-args"><code>{&quot;customer_id&quot;: 42, &quot;country&quot;: &quot;IE&quot;}</code></div>
+        </div>
+        
+
+        <div class="trace-step trace-step-pruned">
+          <div class="step-header">
+            <span class="step-index">#5</span>
+            <span class="step-tool">compliance.audit_check</span>
+            <span class="step-badge step-badge-pruned">PRUNED BY DDMIN</span>
+            <span class="step-mut-badge mut-badge-false">MUTATES: FALSE</span>
+          </div>
+          <div class="step-args"><code>{&quot;customer_id&quot;: 42, &quot;tier&quot;: &quot;enterprise&quot;}</code></div>
+        </div>
+        
+
+        <div class="trace-step trace-step-pruned">
+          <div class="step-header">
+            <span class="step-index">#6</span>
+            <span class="step-tool">crm.stage_upgrade</span>
+            <span class="step-badge step-badge-pruned">PRUNED BY DDMIN</span>
+            <span class="step-mut-badge mut-badge-false">MUTATES: FALSE</span>
+          </div>
+          <div class="step-args"><code>{&quot;customer_id&quot;: 42, &quot;target_plan&quot;: &quot;enterprise&quot;}</code></div>
+        </div>
+        
+
+        <div class="trace-step trace-step-highlight">
+          <div class="step-header">
+            <span class="step-index">#7</span>
+            <span class="step-tool">crm.update_plan</span>
+            <span class="step-badge step-badge-highlight">MINIMAL COUNTEREXAMPLE (STEP #7)</span>
+            <span class="step-mut-badge mut-badge-true">MUTATES: TRUE</span>
+          </div>
+          <div class="step-args"><code>{&quot;customer_id&quot;: 42, &quot;plan&quot;: &quot;enterprise&quot;}</code></div>
+        </div>
+        
+
+        <div class="trace-step trace-step-pruned">
+          <div class="step-header">
+            <span class="step-index">#8</span>
+            <span class="step-tool">billing.record_charge</span>
+            <span class="step-badge step-badge-pruned">PRUNED BY DDMIN</span>
+            <span class="step-mut-badge mut-badge-false">MUTATES: FALSE</span>
+          </div>
+          <div class="step-args"><code>{&quot;customer_id&quot;: 42, &quot;amount_cents&quot;: 49900}</code></div>
+        </div>
+        
+
+        <div class="trace-step trace-step-pruned">
+          <div class="step-header">
+            <span class="step-index">#9</span>
+            <span class="step-tool">email.send_receipt</span>
+            <span class="step-badge step-badge-pruned">PRUNED BY DDMIN</span>
+            <span class="step-mut-badge mut-badge-false">MUTATES: FALSE</span>
+          </div>
+          <div class="step-args"><code>{&quot;customer_id&quot;: 42, &quot;template&quot;: &quot;upgrade_confirmed&quot;}</code></div>
+        </div>
+        
+
+        <div class="trace-step trace-step-pruned">
+          <div class="step-header">
+            <span class="step-index">#10</span>
+            <span class="step-tool">slack.notify_channel</span>
+            <span class="step-badge step-badge-pruned">PRUNED BY DDMIN</span>
+            <span class="step-mut-badge mut-badge-false">MUTATES: FALSE</span>
+          </div>
+          <div class="step-args"><code>{&quot;channel&quot;: &quot;#deals&quot;, &quot;customer_id&quot;: 42}</code></div>
+        </div>
+        
+
+        <div class="trace-step trace-step-pruned">
+          <div class="step-header">
+            <span class="step-index">#11</span>
+            <span class="step-tool">analytics.track_event</span>
+            <span class="step-badge step-badge-pruned">PRUNED BY DDMIN</span>
+            <span class="step-mut-badge mut-badge-false">MUTATES: FALSE</span>
+          </div>
+          <div class="step-args"><code>{&quot;event&quot;: &quot;plan_upgraded&quot;, &quot;customer_id&quot;: 42}</code></div>
+        </div>
+        
+      </div>
+    </section>
+
+    <!-- Section 2: Wind Tunnel A/B Verification Matrix -->
+    <section class="section">
+      <div class="section-header">
+        <h2 class="section-title">
+          <span>&#x1F6E1;</span> Wind Tunnel A/B Verification Matrix (G2 Kill-Gate)
+        </h2>
+        <span class="section-badge">6/6 PASS</span>
+      </div>
+      <div class="checks-grid">
+        
+        <div class="check-card check-card-pass">
+          <div class="check-top">
+            <span class="check-name">clean control (no faults, 5 runs)</span>
+            <span class="badge badge-ok">PASS</span>
+          </div>
+          <div class="check-detail">green: 5/5 | states byte-identical: True</div>
+          
+        </div>
+        
+
+        <div class="check-card check-card-pass">
+          <div class="check-top">
+            <span class="check-name">timeout_after_commit unguarded (5 runs)</span>
+            <span class="badge badge-ok">PASS</span>
+          </div>
+          <div class="check-detail">RED: 5/5 (duplicate write) | states byte-identical: True</div>
+          <div class="check-evidence">Evidence: <code>2 &#x27;crm.update_plan&#x27; writes for customer 42 -- seq [0, 1]</code></div>
+        </div>
+        
+
+        <div class="check-card check-card-pass">
+          <div class="check-top">
+            <span class="check-name">determinism (state + execution traces)</span>
+            <span class="badge badge-ok">PASS</span>
+          </div>
+          <div class="check-detail">state hashes: 1 distinct | execution hashes: 1 distinct</div>
+          
+        </div>
+        
+
+        <div class="check-card check-card-pass">
+          <div class="check-top">
+            <span class="check-name">negative controls (429 &amp; malformed stay green)</span>
+            <span class="badge badge-ok">PASS</span>
+          </div>
+          <div class="check-detail">429: 5/5 green (pre-commit) | malformed: 5/5 green (aborts cleanly)</div>
+          
+        </div>
+        
+
+        <div class="check-card check-card-pass">
+          <div class="check-top">
+            <span class="check-name">Zeller ddmin counterexample minimizer</span>
+            <span class="badge badge-ok">PASS</span>
+          </div>
+          <div class="check-detail">11 steps -&gt; 1 minimal counterexample (7 replay runs, 85.61 ms, 0 LLM calls)</div>
+          
+        </div>
+        
+
+        <div class="check-card check-card-pass">
+          <div class="check-top">
+            <span class="check-name">Phoenix Guard verified (idempotency fix)</span>
+            <span class="badge badge-ok">PASS</span>
+          </div>
+          <div class="check-detail">0/5 RED (was 5/5) | states byte-identical: True | deduped: 5/5</div>
+          
+        </div>
+        
+      </div>
+    </section>
+
+    <!-- Section 3: SQLite WAL Ledger Table -->
+    <section class="section">
+      <div class="section-header">
+        <h2 class="section-title">
+          <span>&#x1F4DC;</span> SQLite WAL Ledger (Recent Operations)
+        </h2>
+        <span class="section-badge">Latest 3 Records</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Attempt ID</th>
+              <th>Op ID</th>
+              <th>Tool</th>
+              <th>Status</th>
+              <th>Arguments Payload</th>
+              <th>Time (UTC)</th>
+            </tr>
+          </thead>
+          <tbody>
+            
+            <tr>
+              <td><code>c0cc8c6cc8da43c883</code></td>
+              <td><code>phx_5d65cde7b5c5c0</code></td>
+              <td><strong>write_file</strong></td>
+              <td><span class="badge badge-ok">OK</span></td>
+              <td class="code-cell"><code>{&quot;path&quot;: &quot;C:\\Users\\ratin\\Downloads\\Hermes plugn compi...</code></td>
+              <td class="text-muted">23:38:05</td>
+            </tr>
+            
+
+            <tr>
+              <td><code>0257938fb10646e5bb</code></td>
+              <td><code>phx_96e68825f1b0fc</code></td>
+              <td><strong>write_file</strong></td>
+              <td><span class="badge badge-resumed">RESUMED</span></td>
+              <td class="code-cell"><code>{&quot;path&quot;: &quot;C:\\Users\\ratin\\Downloads\\Hermes plugn compi...</code></td>
+              <td class="text-muted">23:38:05</td>
+            </tr>
+            
+
+            <tr>
+              <td><code>303474a3cf994f4ab6</code></td>
+              <td><code>phx_0a3de656ce5c5b</code></td>
+              <td><strong>write_file</strong></td>
+              <td><span class="badge badge-recovered">RECOVERED_LANDED</span></td>
+              <td class="code-cell"><code>{&quot;path&quot;: &quot;C:\\Users\\ratin\\Downloads\\Hermes plugn compi...</code></td>
+              <td class="text-muted">23:38:05</td>
+            </tr>
+            
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+      Phoenix v0.3.0 &bull; High-Assurance Transactional Execution &amp; Fault Injection Suite
+    </footer>
+  </div>
+</body>
+</html>

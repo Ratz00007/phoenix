@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.db
+*.db-wal
+*.db-shm
+.selfcheck-data/
+phoenix-test-*/
+phoenix-demo-*/
+*.egg-info/
+/build/
+/dist/
+!dashboard/dist/
+.venv/

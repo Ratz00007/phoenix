@@ -1,0 +1,7 @@
+[project]
+name = "phoenix-hermes"
+version = "0.3.0"
+description = "Crash-proof execution journal, idempotency guard, and deterministic fault-injection wind tunnel for Hermes agents."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
