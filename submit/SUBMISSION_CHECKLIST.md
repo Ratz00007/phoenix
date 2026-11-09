@@ -5,7 +5,7 @@
 > **Plugin ID:** `phoenix`  
 > **Maintainer:** `Ratz00007`  
 > **Repository:** https://github.com/Ratz00007/phoenix  
-> **Pinned Commit:** `0000000000000000000000000000000000000000`  
+> **Pinned Commit:** `ea0d8e20a61ad83f244cb4fa47dfa647d4d3d55a` (https://github.com/Ratz00007/phoenix/commit/ea0d8e20a61ad83f244cb4fa47dfa647d4d3d55a)  
 > **Status:** Production-Ready, 100% Deterministic, Zero Dependencies
 
 ---

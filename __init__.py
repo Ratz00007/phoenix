@@ -13,9 +13,16 @@ Hermes surfaces used (public API only):
 
 from __future__ import annotations
 
+from pathlib import Path as _Path
+import shutil as _shutil
+import sys as _sys
+
+_sys.dont_write_bytecode = True
+
 
 def register(ctx):
     """Hermes entrypoint. Called once when the plugin is loaded."""
+    _shutil.rmtree(_Path(__file__).resolve().parent / "__pycache__", ignore_errors=True)
     from . import commands, middleware, tools
     from .core import get_app
 

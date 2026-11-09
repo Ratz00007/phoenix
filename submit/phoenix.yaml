@@ -1,7 +1,7 @@
 name: phoenix
 title: Phoenix — crash-proof execution journal & deterministic wind tunnel
 repo: https://github.com/Ratz00007/phoenix
-sha: 0000000000000000000000000000000000000000
+sha: ea0d8e20a61ad83f244cb4fa47dfa647d4d3d55a
 description: >-
   Transactional SQLite WAL crash-recovery journal, pre/post SHA-256 state fingerprinting,
   live idempotency guard, and deterministic ReplayLab fault-injection wind tunnel with
