@@ -1296,14 +1296,16 @@ class TestMaintainerReviewItems(Base):
         self.assertEqual(call_count, 1)
 
     def test_db_file_permissions(self):
-        """Item 2: DB file permissions set to 0600 on creation."""
+        """Database and SQLite WAL sidecars are restricted to the owner."""
         db_file = Path(self.tmp) / "perm_test.db"
         j = Journal(self.tmp, db_path=str(db_file))
         j.record_intent("att_perm", "op_perm", "write_file", {"path": "a.txt"})
         self.assertTrue(db_file.is_file())
         if os.name != "nt":
-            mode = oct(os.stat(db_file).st_mode & 0o777)
-            self.assertEqual(mode, "0o600")
+            for path in (db_file, Path(f"{db_file}-wal"), Path(f"{db_file}-shm")):
+                self.assertTrue(path.is_file(), f"expected SQLite file: {path}")
+                mode = oct(os.stat(path).st_mode & 0o777)
+                self.assertEqual(mode, "0o600", f"unexpected permissions for {path}")
         j.close()
 
     def test_journal_retention_and_prune(self):

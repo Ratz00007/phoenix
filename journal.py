@@ -94,15 +94,27 @@ class Journal:
         self._conn: sqlite3.Connection | None = None
         self._lock = threading.RLock()
 
+    def _harden_file_permissions(self) -> None:
+        """Restrict the database and SQLite WAL sidecars to the owner."""
+        if self.db_path == ":memory:":
+            return
+        for path in (
+            Path(self.db_path),
+            Path(f"{self.db_path}-wal"),
+            Path(f"{self.db_path}-shm"),
+        ):
+            try:
+                if path.exists():
+                    os.chmod(path, 0o600)
+            except OSError:
+                # Permission hardening is best effort on platforms/filesystems
+                # that do not expose POSIX-style modes.
+                pass
+
     def _connect(self) -> sqlite3.Connection:
         if self._conn is None:
             self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
             if self.db_path != ":memory:":
-                try:
-                    if os.path.exists(self.db_path):
-                        os.chmod(self.db_path, 0o600)
-                except Exception:
-                    pass
                 self._conn.execute("PRAGMA journal_mode=WAL")
                 self._conn.execute("PRAGMA synchronous=NORMAL")
             self._conn.executescript(_SCHEMA)
@@ -115,7 +127,12 @@ class Journal:
                     self.prune(max_age_days=7, max_rows=10000)
                 except Exception:
                     pass
+                self._harden_file_permissions()
         return self._conn
+
+    def _commit(self, conn: sqlite3.Connection) -> None:
+        conn.commit()
+        self._harden_file_permissions()
 
     def close(self) -> None:
         with self._lock:
@@ -161,7 +178,7 @@ class Journal:
                     time.time(),
                 ),
             )
-            c.commit()
+            self._commit(c)
 
     def record_outcome(self, attempt_id, op_id, status, result=None, error=None) -> None:
         with self._lock:
@@ -180,7 +197,7 @@ class Journal:
                     op_id,
                 ),
             )
-            c.commit()
+            self._commit(c)
 
     def mark_resumed(self, attempt_id, result=None, error=None, status: str = "resumed") -> None:
         with self._lock:
@@ -198,7 +215,7 @@ class Journal:
                     attempt_id,
                 ),
             )
-            c.commit()
+            self._commit(c)
 
     def clear_in_flight(self, reason: str = "cleared") -> None:
         """Mark all intent rows as errors (a deliberate, recorded give-up)."""
@@ -208,7 +225,7 @@ class Journal:
                 "UPDATE ops SET status='error', error=?, ts_done=? WHERE status='intent'",
                 (reason, time.time()),
             )
-            c.commit()
+            self._commit(c)
 
     def set_meta(self, key: str, val: str) -> None:
         with self._lock:
@@ -217,7 +234,7 @@ class Journal:
                 "INSERT OR REPLACE INTO meta (key, val) VALUES (?, ?)",
                 (key, str(val)),
             )
-            c.commit()
+            self._commit(c)
 
     # -- reads --------------------------------------------------------------
 
@@ -319,7 +336,7 @@ class Journal:
             )
             deleted = cursor.rowcount if cursor.rowcount > 0 else 0
             if deleted > 0:
-                c.commit()
+                self._commit(c)
             return deleted
 
     def recent(self, limit: int = 25) -> list[dict]:
