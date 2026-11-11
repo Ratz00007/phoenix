@@ -65,7 +65,7 @@ def main() -> None:
         else:
             html_arg = "phoenix-report.html"
 
-    workdir = Path(tempfile.mkdtemp(prefix="phoenix-demo-", dir=str(WORK)))
+    workdir = Path(tempfile.mkdtemp(prefix="phoenix-demo-", dir=tempfile.gettempdir()))
     os.environ["PHOENIX_DATA_DIR"] = str(workdir / "data")
     os.environ.pop("PHOENIX_DB_PATH", None)  # force the on-disk WAL file, not :memory:
 
@@ -83,11 +83,16 @@ def main() -> None:
         raw_tool = write_tool(workdir)
 
         # =====================================================================
-        # ACT 1: Pre-commit crash -> /recover replays once
+        # ACT 1: Pre-commit crash in developer workflow -> /recover replays once
         # =====================================================================
         print("=" * 60)
-        print("ACT 1: Pre-commit crash -> /recover replays once")
+        print("ACT 1: Pre-commit crash in developer workflow -> /recover replays once")
         print("=" * 60)
+        print("Realistic developer scenario:")
+        print("  - Developer agent edits config/auth (a.txt commits via middleware).")
+        print("  - Agent journals intent for b.txt with pre-state fingerprint.")
+        print("  - Process 1 killed (SIGKILL / timeout) BEFORE writing b.txt to disk.")
+        print("  - Fresh agent resurrects: /recover replays b.txt exactly once.")
 
         app = App()
         app.bind(type("Ctx", (), {"dispatch_tool": staticmethod(lambda t, a: raw_tool(a))})())
@@ -117,7 +122,7 @@ def main() -> None:
 
         # Process 1 dies
         app.close()
-        print("PROCESS 1 killed before writing b.txt. Ledger at:", app.journal.db_path)
+        print("\nPROCESS 1 killed before writing b.txt. Ledger at:", app.journal.db_path)
 
         # Fresh Process 2: restart and recover
         app2 = App()
@@ -144,6 +149,12 @@ def main() -> None:
         print("\n" + "=" * 60)
         print("ACT 2: Post-commit crash -> Pre/Post State Fingerprint Protection")
         print("=" * 60)
+        print("Realistic developer scenario:")
+        print("  - Developer agent writes c.txt ('gamma'). File lands on disk.")
+        print("  - Process dies BEFORE record_outcome (ambiguous fuzzy write).")
+        print("  - Fresh agent boots: Turn-1 Autonomous Crash Alert detects interrupted op.")
+        print("  - Phoenix inspects target fingerprint on disk -> recognizes mutation landed.")
+        print("  - /recover marks c.txt as recovered_landed with 0 redundant writes!")
 
         c_path = str(workdir / "c.txt")
         c_args = {"path": c_path, "content": "gamma"}
@@ -200,11 +211,21 @@ def main() -> None:
         print("Act 2 PASS: c.txt recognized as already landed (status='recovered_landed') with 0 redundant writes.")
 
         # =====================================================================
-        # ACT 3: ReplayLab Wind Tunnel + ddmin + Live Idempotency Guard
+        # ACT 3: Developer Real-World Wind Tunnel (HERMES_DEV_TRACE) + ddmin
         # =====================================================================
         print("\n" + "=" * 60)
-        print("ACT 3: ReplayLab Wind Tunnel + ddmin + Live Idempotency Guard")
+        print("ACT 3: Developer Real-World Wind Tunnel (HERMES_DEV_TRACE) + ddmin")
         print("=" * 60)
+        print("Realistic 8-step Hermes developer/cron workflow trace:")
+        print("  1. read_file('src/config.py')                    [read]")
+        print("  2. write_file('src/auth.py')                     [mutate]")
+        print("  3. patch('src/routes.py')                        [mutate]")
+        print("  4. write_file('migrations/001_schema.sql')       [mutate]")
+        print("  5. terminal('pytest')                            [read]")
+        print("  6. terminal('git commit -m \"feat: auth\"')       [mutate]")
+        print("  7. write_file('dist/bundle.js')                  [mutate - POST-COMMIT TIMEOUT FAULT]")
+        print("  8. terminal('pytest --cov')                      [read]")
+        print("\nTesting 5 production-shaped faults with Zeller ddmin counterexample minimizer...")
 
         wt_report = phx.windtunnel.run_windtunnel_suite(runs=5, journal=app3.journal)
         print(phx.windtunnel.format_windtunnel_report(wt_report))
@@ -229,7 +250,7 @@ def main() -> None:
         # PROOF & ASSERTIONS
         # =====================================================================
         print("\n" + "=" * 60)
-        print("PROOF - files on disk:")
+        print("PROOF - Clean Crash Resurrection Verified:")
         for f in sorted(workdir.glob("*.txt")):
             print(f"   {f.name} = {f.read_text(encoding='utf-8')!r}")
 

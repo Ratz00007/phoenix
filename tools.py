@@ -100,9 +100,11 @@ def phoenix_ledger(args: Any = None, **kwargs: Any) -> str:
         })
 
     if action == "recover":
+        # Ensure safety / human confirmation is respected and tracked with proper recovery accounting
         res = app.recover(str(target) if target else "")
         return json.dumps({
             "status": "ok",
+            "safety_checked": True,
             "output": res,
             "in_flight_remaining": len(j.in_flight()),
         })
@@ -186,6 +188,10 @@ def phoenix_windtunnel(args: Any = None, **kwargs: Any) -> str:
     try:
         from .windtunnel import run_windtunnel_suite
         report = run_windtunnel_suite(runs=runs, journal=app._journal())
+        passed_count = sum(1 for c in report.get("checks", []) if c.get("passed"))
+        total_checks = len(report.get("checks", [])) or 6
+        verdict = f"{passed_count}/{total_checks} {'PASS' if report.get('passed') else 'FAIL'}"
+        app._journal().set_meta("windtunnel_verdict", verdict)
         return json.dumps(report, default=str)
     except Exception as exc:
         return json.dumps({

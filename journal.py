@@ -14,10 +14,45 @@ Lifecycle of a row:
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import threading
 import time
 from pathlib import Path
+from typing import Any
+
+_REDACT_KV_RE = re.compile(
+    r'("(?:api[_-]?key|token|secret|password|passwd|auth|authorization|access[_-]?token|refresh[_-]?token|bearer)"\s*:\s*)"(?:[^"\\]|\\.)*"',
+    re.IGNORECASE,
+)
+_REDACT_KV_NONSTR_RE = re.compile(
+    r'("(?:api[_-]?key|token|secret|password|passwd|auth|authorization|access[_-]?token|refresh[_-]?token|bearer)"\s*:\s*)[^\s,}\]]+',
+    re.IGNORECASE,
+)
+_REDACT_SK_RE = re.compile(r'\bsk-[a-zA-Z0-9_\-]{8,}\b')
+_REDACT_GHP_RE = re.compile(r'\bghp[_-][a-zA-Z0-9]{8,}\b')
+_REDACT_BEARER_RE = re.compile(r'\b(Bearer\s+)[a-zA-Z0-9_\-\.]{8,}\b', re.IGNORECASE)
+
+
+def redact_secrets(val: Any) -> str | None:
+    """Redact sensitive credentials, auth headers, API keys, and tokens."""
+    if val is None:
+        return None
+    if isinstance(val, str):
+        s = val
+    else:
+        try:
+            s = json.dumps(val, default=str)
+        except Exception:
+            s = str(val)
+
+    s = _REDACT_KV_RE.sub(r'\1"[REDACTED]"', s)
+    s = _REDACT_KV_NONSTR_RE.sub(r'\1"[REDACTED]"', s)
+    s = _REDACT_SK_RE.sub('[REDACTED]', s)
+    s = _REDACT_GHP_RE.sub('[REDACTED]', s)
+    s = _REDACT_BEARER_RE.sub(r'\1[REDACTED]', s)
+    return s
+
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS ops (
@@ -91,6 +126,7 @@ class Journal:
         with self._lock:
             c = self._connect()
             pre_fp_json = json.dumps(pre_fp, default=str) if pre_fp is not None else None
+            args_json = redact_secrets(args) or "{}"
             c.execute(
                 "INSERT OR IGNORE INTO ops (attempt_id, op_id, tool, args_json, status, "
                 "session_id, turn_id, tool_call_id, pre_fp_json, ts_intent) VALUES (?,?,?,?,?,?,?,?,?,?)",
@@ -98,7 +134,7 @@ class Journal:
                     attempt_id,
                     op_id,
                     tool,
-                    json.dumps(args, default=str),
+                    args_json,
                     "intent",
                     session_id,
                     turn_id,
@@ -112,13 +148,15 @@ class Journal:
     def record_outcome(self, attempt_id, op_id, status, result=None, error=None) -> None:
         with self._lock:
             c = self._connect()
+            result_json = redact_secrets(result)
+            error_clean = redact_secrets(error) if error else None
             c.execute(
                 "UPDATE ops SET status=?, result_json=?, error=?, ts_done=? "
                 "WHERE attempt_id=? AND op_id=?",
                 (
                     status,
-                    json.dumps(result, default=str) if result is not None else None,
-                    error,
+                    result_json,
+                    error_clean,
                     time.time(),
                     attempt_id,
                     op_id,
@@ -129,13 +167,15 @@ class Journal:
     def mark_resumed(self, attempt_id, result=None, error=None, status: str = "resumed") -> None:
         with self._lock:
             c = self._connect()
+            result_json = redact_secrets(result)
+            error_clean = redact_secrets(error) if error else None
             c.execute(
                 "UPDATE ops SET status=?, result_json=?, error=?, ts_done=? "
                 "WHERE attempt_id=?",
                 (
                     status,
-                    json.dumps(result, default=str) if result is not None else None,
-                    error,
+                    result_json,
+                    error_clean,
                     time.time(),
                     attempt_id,
                 ),
@@ -274,15 +314,15 @@ class Journal:
 
     def stats(self) -> dict:
         c = self._connect()
-        total = c.execute("SELECT COUNT(*) FROM ops").fetchone()[0]
+        total = c.execute("SELECT COUNT(*) FROM ops WHERE attempt_id NOT LIKE '%_recov'").fetchone()[0]
         committed = c.execute(
-            "SELECT COUNT(*) FROM ops WHERE status IN ('ok','resumed','recovered_landed')"
+            "SELECT COUNT(*) FROM ops WHERE status IN ('ok','resumed','recovered_landed') AND attempt_id NOT LIKE '%_recov'"
         ).fetchone()[0]
-        errors = c.execute("SELECT COUNT(*) FROM ops WHERE status='error'").fetchone()[0]
+        errors = c.execute("SELECT COUNT(*) FROM ops WHERE status='error' AND attempt_id NOT LIKE '%_recov'").fetchone()[0]
         in_flight = c.execute("SELECT COUNT(*) FROM ops WHERE status='intent'").fetchone()[0]
-        deduped = c.execute("SELECT COUNT(*) FROM ops WHERE status='deduped'").fetchone()[0]
+        deduped = c.execute("SELECT COUNT(*) FROM ops WHERE status='deduped' AND attempt_id NOT LIKE '%_recov'").fetchone()[0]
         recovered_landed = c.execute(
-            "SELECT COUNT(*) FROM ops WHERE status='recovered_landed'"
+            "SELECT COUNT(*) FROM ops WHERE status='recovered_landed' AND attempt_id NOT LIKE '%_recov'"
         ).fetchone()[0]
         return {
             "total": total,

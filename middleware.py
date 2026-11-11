@@ -12,11 +12,38 @@ the exception is swallowed, so Phoenix can never break the agent.
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from typing import Any, Callable
 
 from .core import get_app
-from .keys import has_target_changed, is_hermes_error_result, op_id, target_fingerprint
+from .keys import (
+    has_target_changed,
+    is_hermes_error_result,
+    is_target_fully_committed,
+    op_id,
+    target_fingerprint,
+)
+
+_READ_ONLY_TOOLS = frozenset({
+    "read_file",
+    "view_image",
+    "web_search",
+    "fetch_web_page",
+    "phoenix_ledger",
+    "phoenix_windtunnel",
+})
+
+
+def _is_read_only(tool: str, args: Any) -> bool:
+    if tool in _READ_ONLY_TOOLS:
+        return True
+    if tool in ("terminal", "bash", "shell") and isinstance(args, dict):
+        cmd = args.get("command") or args.get("cmd") or ""
+        if isinstance(cmd, str) and re.match(r"^\s*(ls|cat|pwd|git status|git diff|git log|pytest|echo)\b", cmd):
+            return True
+    return False
+
 
 
 def make_middleware(
@@ -39,8 +66,40 @@ def make_middleware(
         turn_id = kwargs.get("turn_id")
         tool_call_id = kwargs.get("tool_call_id")
 
-        # Idempotency deduplication guard
-        if getattr(app, "guard_enabled", False):
+        # Idempotency deduplication guard: NEVER deduplicate read-only or inspection tools
+        if getattr(app, "guard_enabled", False) and not _is_read_only(tool, args):
+            prev_fp = None
+            try:
+                prev_fp = app._journal().latest_pre_fp(key)
+            except Exception:
+                prev_fp = None
+
+            # Mutating tools: only deduplicate if target is actually currently in committed state
+            target_committed = False
+            if prev_fp is not None:
+                if callable(state_probe):
+                    try:
+                        probe_prev = prev_fp.get("probe") if "probe" in prev_fp else prev_fp.get("state_probe")
+                        curr_probe = state_probe(tool, args)
+                        target_committed = curr_probe != probe_prev or curr_probe > 0
+                    except Exception:
+                        target_committed = False
+                elif tool == "write_file":
+                    try:
+                        target_committed = is_target_fully_committed(tool, args, prev_fp)
+                    except Exception:
+                        target_committed = False
+                else:
+                    try:
+                        target_committed = has_target_changed(prev_fp, state_probe=state_probe)
+                    except Exception:
+                        target_committed = False
+            elif callable(state_probe):
+                try:
+                    target_committed = state_probe(tool, args) > 0
+                except Exception:
+                    target_committed = False
+
             # 1. Prior successful execution
             cached = None
             try:
@@ -48,27 +107,33 @@ def make_middleware(
             except Exception:
                 cached = None
             if cached is not None:
-                _, cached_json = cached
-                try:
-                    cached_val = json.loads(cached_json) if cached_json is not None else None
-                except Exception:
-                    cached_val = cached_json
-                try:
-                    app._journal().record_intent(
-                        attempt, key, tool, args, session_id, turn_id, tool_call_id
-                    )
-                    app._journal().record_outcome(attempt, key, "deduped", result=cached_val)
-                except Exception:
-                    pass
-                return cached_val
+                # If disk state does not match cached post-state, do NOT swallow the write!
+                allow_cached_dedup = True
+                if tool == "write_file":
+                    if callable(state_probe):
+                        allow_cached_dedup = target_committed
+                    else:
+                        allow_cached_dedup = is_target_fully_committed(tool, args, prev_fp)
+                elif prev_fp is not None:
+                    allow_cached_dedup = target_committed
 
-            # 2. Prior attempt already mutated target
-            prev_fp = None
-            try:
-                prev_fp = app._journal().latest_pre_fp(key)
-            except Exception:
-                prev_fp = None
-            if prev_fp is not None and has_target_changed(prev_fp, state_probe=state_probe):
+                if allow_cached_dedup:
+                    _, cached_json = cached
+                    try:
+                        cached_val = json.loads(cached_json) if cached_json is not None else None
+                    except Exception:
+                        cached_val = cached_json
+                    try:
+                        app._journal().record_intent(
+                            attempt, key, tool, args, session_id, turn_id, tool_call_id
+                        )
+                        app._journal().record_outcome(attempt, key, "deduped", result=cached_val)
+                    except Exception:
+                        pass
+                    return cached_val
+
+            # 2. Prior attempt already mutated target (e.g. timeout after commit)
+            if target_committed:
                 dedup_val = {
                     "ok": True,
                     "deduped": True,

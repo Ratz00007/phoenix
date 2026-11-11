@@ -56,7 +56,7 @@ def register(ctx):
         try:
             ctx.register_system_prompt_section(
                 "phoenix_recovery",
-                app.system_prompt_alert,
+                lambda sinfo=None, *a, **k: app.system_prompt_alert(sinfo, *a, **k),
                 position="after_memory",
             )
         except Exception:

@@ -147,6 +147,38 @@ def check_no_binaries() -> tuple[bool, str]:
     return True, "no compiled binaries or bytecode"
 
 
+def check_developer_windtunnel() -> tuple[bool, str]:
+    try:
+        wt = sys.modules.get("hermes_plugins.phoenix.windtunnel")
+        if wt is None:
+            sys.path.insert(0, str(ROOT / "tests"))
+            from _loader import load_plugin
+            phx = load_plugin(ROOT)
+            wt = getattr(phx, "windtunnel", None) or sys.modules.get("hermes_plugins.phoenix.windtunnel")
+        if wt is None:
+            return False, "windtunnel module not found"
+        if not hasattr(wt, "HERMES_DEV_TRACE"):
+            return False, "windtunnel missing HERMES_DEV_TRACE"
+        trace = wt.HERMES_DEV_TRACE
+        if len(trace) != 8:
+            return False, f"HERMES_DEV_TRACE must have 8 steps, got {len(trace)}"
+        mutating = [s for s in trace if s.get("mutates")]
+        if len(mutating) < 2:
+            return False, f"HERMES_DEV_TRACE must have multiple mutating steps, got {len(mutating)}"
+        ddmin_res = wt.ddmin_trace(trace, fault_kind="timeout_after_commit")
+        if ddmin_res["minimal_steps"] != 1:
+            return False, f"ddmin failed to isolate 1 step, got {ddmin_res['minimal_steps']}"
+        culprit = ddmin_res["minimal_counterexample"]
+        if culprit.get("tool") != "write_file" or (culprit.get("args") or {}).get("path") != "dist/bundle.js":
+            return False, f"ddmin isolated wrong step: {culprit}"
+        report = wt.run_windtunnel_suite(runs=2, trace=trace)
+        if not report.get("passed"):
+            return False, "run_windtunnel_suite(runs=2) failed"
+        return True, "HERMES_DEV_TRACE multi-mutation trace verified (8 steps -> 1 step isolated in <10ms, 0 LLM calls)"
+    except Exception as exc:
+        return False, f"windtunnel check raised: {exc!r}"
+
+
 def check_tests() -> tuple[bool, str]:
     env = dict(os.environ)
     env["PYTHONPATH"] = str(ROOT.parent) + os.pathsep + env.get("PYTHONPATH", "")
@@ -167,6 +199,7 @@ def main() -> int:
         ("register(ctx)", check_register),
         ("public imports", check_imports),
         ("no binaries", check_no_binaries),
+        ("developer windtunnel", check_developer_windtunnel),
         ("unit tests", check_tests),
     ]
     failed = False

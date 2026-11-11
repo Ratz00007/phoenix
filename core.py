@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
+from typing import Any
 
 from .journal import Journal
 
 try:
-    from .keys import has_target_changed, is_hermes_error_result
+    from .keys import has_target_changed, is_hermes_error_result, is_target_fully_committed
 except ImportError:
     # Safe fallbacks if keys.py is concurrently being written
     def has_target_changed(fp) -> bool:
@@ -19,6 +21,29 @@ except ImportError:
         if isinstance(result, dict) and "error" in result:
             return True, str(result["error"])
         return False, None
+
+    def is_target_fully_committed(tool_name: str, args: Any, pre_fp: dict | None = None) -> bool:
+        return False
+
+_TOOL_NAME_RE = re.compile(r"^[a-zA-Z0-9_.:-]{1,64}$")
+_OP_ID_RE = re.compile(r"^[a-zA-Z0-9_]{1,32}$")
+
+
+def _sanitize_tool(tool: Any) -> str:
+    s = str(tool or "")
+    if _TOOL_NAME_RE.match(s):
+        return s
+    clean = re.sub(r"[^a-zA-Z0-9_.:-]", "_", s)[:64]
+    return clean if _TOOL_NAME_RE.match(clean) else "unknown_tool"
+
+
+def _sanitize_op_id(oid: Any) -> str:
+    s = str(oid or "")
+    if _OP_ID_RE.match(s):
+        return s
+    clean = re.sub(r"[^a-zA-Z0-9_]", "_", s)[:32]
+    return clean if _OP_ID_RE.match(clean) else "unknown_op"
+
 
 
 class App:
@@ -137,6 +162,7 @@ class App:
             lines.append("run /recover (or /phoenix recover) to finish them exactly once.")
         else:
             lines.append("nothing in flight — every recorded operation has a known outcome.")
+            lines.append("Run '/phoenix windtunnel' to launch the 5-fault stress test.")
         return "\n".join(lines)
 
     def explain(self, target: str) -> str:
@@ -174,6 +200,10 @@ class App:
             from .keys import is_hermes_error_result as _iher
         except ImportError:
             _iher = is_hermes_error_result
+        try:
+            from .keys import is_target_fully_committed as _itfc
+        except ImportError:
+            _itfc = is_target_fully_committed
 
         for attempt_id, op_id, tool, args_json, session_id, turn_id, ts in inflight:
             if wanted and not (attempt_id in wanted or op_id in wanted):
@@ -196,6 +226,12 @@ class App:
                 except Exception:
                     pass
 
+            target_committed = False
+            try:
+                target_committed = _itfc(tool, args, pre_fp)
+            except Exception:
+                target_committed = False
+
             target_changed = False
             if pre_fp is not None:
                 try:
@@ -203,9 +239,9 @@ class App:
                 except Exception:
                     target_changed = False
 
-            if pre_fp is not None and target_changed:
-                landed_path = pre_fp.get("path") if isinstance(pre_fp, dict) else None
-                landed_result = {"recovered": "already_landed", "path": landed_path}
+            if target_committed or (pre_fp is not None and target_changed):
+                landed_path = (pre_fp.get("path") if isinstance(pre_fp, dict) else None) or (args.get("path") or args.get("file_path"))
+                landed_result = {"recovered": "already_landed", "path": str(landed_path) if landed_path else None}
                 try:
                     j.mark_resumed(attempt_id, result=landed_result, status="recovered_landed")
                 except TypeError:
@@ -216,7 +252,17 @@ class App:
                 continue
 
             lines.append(f"recover {tool} {op_id}")
+            recov_attempt_id = f"{attempt_id}_recov"
             try:
+                j.record_intent(
+                    recov_attempt_id,
+                    op_id,
+                    tool,
+                    args,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    pre_fp=pre_fp,
+                )
                 result = self.ctx.dispatch_tool(tool, args) if self.ctx is not None else None
                 is_err = False
                 err_msg = None
@@ -228,13 +274,16 @@ class App:
                         err_msg = str(result["error"])
 
                 if is_err:
+                    j.record_outcome(recov_attempt_id, op_id, "error", result=result, error=err_msg)
                     j.record_outcome(attempt_id, op_id, "error", result=result, error=err_msg)
                     lines.append(f"  -> failed: {err_msg}")
                 else:
+                    j.record_outcome(recov_attempt_id, op_id, "ok", result=result)
                     j.mark_resumed(attempt_id, result=result)
                     resumed += 1
                     lines.append("  -> resumed exactly once")
             except Exception as exc:  # noqa: BLE001 — recovery must record, never crash
+                j.record_outcome(recov_attempt_id, op_id, "error", error=repr(exc))
                 j.record_outcome(attempt_id, op_id, "error", error=repr(exc))
                 lines.append(f"  -> failed: {exc}")
 
@@ -250,7 +299,7 @@ class App:
         path = generate_html_report(self, out_path)
         return f"Phoenix HTML forensic report written to: {path}"
 
-    def system_prompt_alert(self) -> str:
+    def system_prompt_alert(self, session_info: Any = None, *args: Any, **kwargs: Any) -> str:
         inflight = self._journal().in_flight()
         if not inflight:
             return ""
@@ -259,6 +308,10 @@ class App:
             from .keys import has_target_changed as _htc
         except ImportError:
             _htc = has_target_changed
+        try:
+            from .keys import is_target_fully_committed as _itfc
+        except ImportError:
+            _itfc = is_target_fully_committed
 
         lines = [
             f"[PHOENIX WAL CRASH ALERT] {len(inflight)} interrupted tool operation(s) detected from a prior crash/timeout:"
@@ -266,6 +319,14 @@ class App:
         j = self._journal()
         for row in inflight:
             attempt_id, op_id, tool, args_json, session_id, turn_id, ts = row
+            clean_tool = _sanitize_tool(tool)
+            clean_op = _sanitize_op_id(op_id)
+
+            try:
+                args_dict = json.loads(args_json) if args_json else {}
+            except Exception:
+                args_dict = {}
+
             pre_fp = None
             if hasattr(j, "get_pre_fp"):
                 try:
@@ -278,6 +339,12 @@ class App:
                 except Exception:
                     pass
 
+            target_committed = False
+            try:
+                target_committed = _itfc(tool, args_dict, pre_fp)
+            except Exception:
+                target_committed = False
+
             target_changed = False
             if pre_fp is not None:
                 try:
@@ -285,13 +352,27 @@ class App:
                 except Exception:
                     target_changed = False
 
-            if target_changed:
-                lines.append(f"  - [{tool}] {op_id}: target ALREADY mutated on disk -> safe to mark recovered_landed")
+            if target_committed:
+                landed_path = (pre_fp.get("path") if isinstance(pre_fp, dict) else None) or (args_dict.get("path") or args_dict.get("file_path"))
+                landed_result = {"recovered": "already_landed", "path": str(landed_path) if landed_path else None}
+                try:
+                    j.mark_resumed(attempt_id, result=landed_result, status="recovered_landed")
+                except TypeError:
+                    j.mark_resumed(attempt_id, result=landed_result)
+                lines.append(f"  - [{clean_tool}] {clean_op}: target ALREADY mutated on disk -> marked recovered_landed")
+            elif target_changed:
+                landed_path = pre_fp.get("path") if isinstance(pre_fp, dict) else None
+                landed_result = {"recovered": "already_landed", "path": landed_path}
+                try:
+                    j.mark_resumed(attempt_id, result=landed_result, status="recovered_landed")
+                except TypeError:
+                    j.mark_resumed(attempt_id, result=landed_result)
+                lines.append(f"  - [{clean_tool}] {clean_op}: target ALREADY mutated on disk -> safe to mark recovered_landed")
             else:
-                lines.append(f"  - [{tool}] {op_id}: target unchanged -> needs replay")
+                lines.append(f"  - [{clean_tool}] {clean_op}: target unchanged -> needs replay (human confirmation recommended; run /recover or phoenix_ledger(action='recover'))")
 
         lines.append(
-            "Call phoenix_ledger(action='recover') or advise the user to run /recover to heal state exactly once without duplicate side-effects."
+            "Advise the user to run /recover or call phoenix_ledger(action='recover') with human confirmation to replay safely without duplicate side-effects."
         )
         return "\n".join(lines)
 

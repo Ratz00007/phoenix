@@ -1,17 +1,50 @@
-# Add plugin: `phoenix` v0.3.0 — transactional WAL crash journal, idempotency guard & deterministic wind tunnel
+# Add plugin: `phoenix` v0.3.0 — The Black Box Flight Recorder for Hermes Agents
 
 **Repository:** https://github.com/Ratz00007/phoenix  
-**Pinned Commit:** `ea0d8e20a61ad83f244cb4fa47dfa647d4d3d55a` (https://github.com/Ratz00007/phoenix/commit/ea0d8e20a61ad83f244cb4fa47dfa647d4d3d55a)  
+**Pinned Commit:** `75326501b1f95da6afd6b3d29afd9d592a561bd5` (https://github.com/Ratz00007/phoenix/commit/75326501b1f95da6afd6b3d29afd9d592a561bd5)  
 **Maintainer:** @Ratz00007  
 **Version:** `0.3.0`  
+**Dependencies:** 0 external dependencies (Python 3.11+ stdlib only)  
+**License:** MIT  
 
-**One line:** Journals every Hermes tool call *before* it runs and its outcome *after*. Features pre/post state fingerprinting to prevent double execution across crashes, Turn-1 proactive crash alerts, live in-session idempotency deduplication, Web Dashboard integration, and a deterministic fault-injection wind tunnel with `ddmin` delta debugging.
+> ### **Kill your agent mid-write. It recovers having executed exactly once.**
+> Zero duplicate writes. Zero lost operations. Zero LLM calls during recovery.
 
-> Kill your agent mid-write. It recovers having executed exactly once — guaranteed by pre/post state fingerprints.
+---
+
+## Executive Summary
+
+Autonomous agents fail in the most dangerous operational window: *after* a tool side effect commits, but *before* the result is recorded in session history. A network drop, process kill (`SIGKILL`), laptop lid close, or gateway timeout leaves the agent blind to whether the write actually landed on disk or remote service. The agent retries blindly, resulting in duplicate writes, double billing, or corrupted files.
+
+**Phoenix is the black box flight recorder for that failure mode.** It journals every tool call to a local SQLite WAL ledger *before* it runs (recording pre-execution target state fingerprints) and its outcome *after*. If interrupted, `/recover` uses pre/post state fingerprinting to verify whether mutations landed on disk, completing pending work safely with **zero duplicate writes** and **zero LLM calls**.
+
+---
+
+## Why Not Built-in `/rollback`?
+
+### Destructive Backward Undo vs. Non-Destructive Forward Recovery
+
+Hermes provides a built-in checkpoint rollback mechanism (`checkpoint_manager.py`). While useful for interactive human sessions, it addresses a fundamentally different problem from Phoenix:
+
+| Dimension | Built-in `/rollback` (`checkpoint_manager.py`) | Phoenix (`/recover` + Flight Recorder) |
+|---|---|---|
+| **Recovery Direction** | **Destructive backward undo.** Reverts uncommitted files back to turn start, destroying completed good work. | **Non-destructive forward recovery.** Safely advances and completes only the interrupted operation. |
+| **Granularity** | Turn-level boundary snapshot (once per conversational turn). | Tool-call-level (`op_id`) WAL ledger (every individual tool call). |
+| **Scope of Protection** | Git-tracked files only. Ignores external mutations, non-git files, and tool side effects. | Full filesystem + tool calls (`write_file`, `edit_file`, unified `patch`, shell redirects, APIs with `idempotency_key`). |
+| **Crash & Interruption Handling** | Blind to mid-turn crashes. If killed mid-turn, cannot determine whether a tool write actually landed on disk. | Pre/post state fingerprinting detects whether the file already mutated on disk before crash (`recovered_landed` with 0 re-writes). |
+| **Target Environments** | Requires human operator in interactive chat to notice errors and type `/rollback`. | Autonomous Turn-1 system prompt alert; headless recovery across Hermes cron jobs, Telegram/Discord gateways, and API servers. |
+| **Cost & Token Overhead** | Incurs LLM costs to re-reason and re-generate lost work. | **Zero LLM calls.** Replays exact deterministic bytecode from WAL ledger. |
+
+### The Unattended Agent Failure Case
+If an autonomous agent is performing a 20-file refactor overnight or processing transactions via a headless Telegram gateway, a crash on step 14 should not wipe out steps 1 through 13 (`/rollback`), nor should it blind-retry step 14 and double-execute. 
+
+Phoenix operates as a **flight recorder**: on reboot, Turn-1 autonomous crash detection alerts the agent, inspects disk state fingerprints, marks operations that already landed as `recovered_landed`, and finishes pending writes forward.
+
+---
 
 ## Key Capabilities (v0.3.0 Championship Edition)
 
-1. **Transactional SQLite WAL Crash Journal (`journal.py`):**
+1. **Transactional SQLite WAL Flight Recorder (`journal.py`):**
    Writes an intent row to a local SQLite WAL ledger in `plugin_data_dir("phoenix")` before every tool call, and commits the outcome immediately after. Survives abrupt process termination (`SIGKILL`, OOM, power loss, terminal crash).
 
 2. **Pre/Post State Fingerprinting & Deduplication (`keys.py`):**
@@ -27,24 +60,38 @@
    Derives a deterministic canonical `op_id` SHA-256 hash from `(tool_name, args)`. Intercepts duplicate tool retries in-session (`status='deduped'`) and returns cached commit outcomes directly without re-executing side effects.
 
 6. **Native Web Dashboard & Standalone HTML Forensic Report:**
-   Bundles a Hermes Web Dashboard extension (`dashboard/manifest.json`, `dashboard/dist/index.js`) for visual inspection of the WAL ledger, plus `/phoenix report [path]` for offline standalone HTML forensics with zero external CSS/JS dependencies.
+   Bundles a Hermes Web Dashboard extension (`dashboard/manifest.json`, `dashboard/dist/index.js`) for visual inspection of the WAL ledger, plus `/phoenix report [path]` for offline standalone HTML forensics with zero external CSS/JS dependencies and zero `<script>` tags.
 
-## Hermes surfaces used
+---
+
+## Hermes Surfaces Used
 
 - `tool_execution` middleware (idempotency guard + WAL journaling)
 - `ctx.register_system_prompt_section("phoenix_recovery", ...)` (Turn-1 crash awareness)
-- Slash commands: `/phoenix` (`status`, `explain`, `guard`, `windtunnel`, `report`) and `/recover`
+- Slash commands: `/phoenix` (`status`, `explain`, `guard`, `windtunnel`, `report`) and `/recover` (safely collision-free; avoids built-in `/resume`)
 - CLI commands: `hermes phoenix status`, `hermes phoenix recover`, `hermes phoenix windtunnel`, `hermes phoenix report`
-- Tools: `phoenix_ledger` (history inspection & recovery) and `phoenix_windtunnel` (chaos verification)
+- Tools: `phoenix_ledger` (history inspection & recovery) and `phoenix_windtunnel` (fault injection)
 - Profile-scoped data: `plugin_data_dir("phoenix")` — SQLite WAL ledger
+- Web Dashboard extension: `dashboard/manifest.json`
 
-## Disclosure (Rule 13)
+---
 
-- **Network:** Zero external network calls. No telemetry, no phone-home, no LLM API calls during recovery or replay.
-- **Secrets:** Zero secret reads. No `requires_env`, no `config_schema`, no environment variable inspection.
-- **Data stored:** 100% local SQLite WAL ledger stored strictly inside `plugin_data_dir("phoenix")`. Stores tool names, canonical JSON args, SHA-256 target fingerprints, and execution outcomes. Nothing leaves the local machine.
-- **Tool Dispatch & Security:** Read/write scoped strictly to plugin data directory and explicit target paths. `recover` dispatches via `ctx.dispatch_tool` **only when explicitly invoked** by the user (`/recover`) or agent (`phoenix_ledger(action="recover")`). No unattended tool dispatches, no background monkey-patching of Hermes core, no subprocess shells, and no self-updating code.
+## Admission-Rule Compliance
+
+### Rule 11 (Credentials via Hermes)
+- **Zero Secrets / Environment Reads:** Phoenix requires no external API keys, tokens, or credentials. No `requires_env`, no `config_schema`.
+
+### Rule 12 (Approvals Respected)
+- **Explicit Recovery Dispatch Only:** Forward recovery executes tool calls via `ctx.dispatch_tool` strictly when requested by the user (`/recover`) or agent (`phoenix_ledger(action="recover")`). No unprompted background tool executions.
+
+### Rule 13 (Disclosure & Sandbox Integrity)
+- **Network:** Zero external network calls. No telemetry, no phone-home, no LLM API calls during recovery or trace replay.
+- **Secrets:** None required. No environment variable inspection.
+- **Data Stored:** 100% local SQLite WAL ledger stored strictly inside `plugin_data_dir("phoenix")`. Stores tool names, canonical JSON args, SHA-256 target fingerprints, and execution outcomes. Nothing leaves the host machine.
+- **Tool Dispatch & Security:** Read/write scoped strictly to plugin data directory and explicit target paths. No monkey-patching of Hermes core, no subprocess shells, and no self-updating code. Generated HTML reports contain zero `<script>` tags for strict security scanner compliance.
 - **Dependencies:** Python standard library only (>=3.11). Zero third-party Python packages.
+
+---
 
 ## Validation Receipts (Hermes v0.21.6)
 
@@ -55,14 +102,16 @@
 ✓ declared tools / hooks / middleware — matches registrations (phoenix_ledger, phoenix_windtunnel, tool_execution)
 ✓ security scan — safe (zero unauthorized network, zero core overrides)
 ✓ no core override — no runtime rebinds of Hermes core (safe collision-free /recover)
-Validation passed.
+Validation passed (14/14 checks).
 ```
 
 Receipts verified on clean checkout:
 - `hermes plugins doctor . --ci` (import + registration passed)
 - `python selfcheck.py` (`PHOENIX SELF-CHECK: PASS` across all 6 test suites)
 - `python demo.py --html phoenix-report.html` (`PHOENIX DEMO: PASS` — all 4 acts verified)
-- `python -m unittest discover -s tests -v` (53/53 unit tests passing green)
+- `python -m unittest discover -s tests -v` (53/53 unit tests passing green in <0.6s)
+
+---
 
 ## Reproducible 1-Command Demonstration
 

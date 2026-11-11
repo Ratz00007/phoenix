@@ -211,3 +211,62 @@ def is_hermes_error_result(result) -> tuple[bool, str | None]:
     elif isinstance(result, dict) and result.get("error") and result.get("ok") is not True:
         return True, str(result["error"])
     return False, None
+
+
+def is_target_fully_committed(
+    tool_name: str,
+    args: Any,
+    pre_fp: dict | None = None,
+) -> bool:
+    """Check whether a tool's intended target state is fully committed on disk.
+
+    If tool is 'write_file' and 'content' in args and 'path' in args (or file_path):
+      check if file exists on disk and its content == args['content'] (or sha256 matches
+      hashlib.sha256(args['content'].encode('utf-8')).hexdigest()). Return True if exactly matches,
+      False otherwise.
+    If tool is 'patch' or others, return False unless verified.
+    """
+    if not isinstance(args, dict):
+        return False
+
+    if tool_name == "write_file":
+        cand = (
+            args.get("path")
+            or args.get("file_path")
+            or (pre_fp.get("path") if isinstance(pre_fp, dict) else None)
+        )
+        if not cand or "content" not in args:
+            return False
+
+        content = args["content"]
+        if not isinstance(content, (str, bytes)):
+            return False
+
+        base_dir = (
+            args.get("workdir")
+            or os.environ.get("PHOENIX_WORKDIR")
+            or os.getcwd()
+        )
+        p_str = str(cand)
+        if os.path.isabs(p_str):
+            resolved = os.path.abspath(p_str)
+        else:
+            resolved = os.path.abspath(os.path.join(base_dir, p_str))
+
+        p = Path(resolved)
+        try:
+            if not p.is_file():
+                return False
+            expected_bytes = content.encode("utf-8") if isinstance(content, str) else content
+            expected_sha = hashlib.sha256(expected_bytes).hexdigest()
+            file_bytes = p.read_bytes()
+            actual_sha = hashlib.sha256(file_bytes).hexdigest()
+            return actual_sha == expected_sha
+        except OSError:
+            return False
+
+    if tool_name == "patch":
+        return False
+
+    return False
+

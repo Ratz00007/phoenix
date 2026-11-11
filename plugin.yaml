@@ -7,6 +7,6 @@ requires_hermes: ">=0.21.6"
 provides_tools:
   - phoenix_ledger
   - phoenix_windtunnel
-provides_hooks: []
 provides_middleware:
   - tool_execution
+provides_hooks: []

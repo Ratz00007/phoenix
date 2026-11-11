@@ -483,8 +483,8 @@
         </div>
       </div>
       <div class="header-meta">
-        <div>Generated: 2026-11-08 23:38:07 UTC</div>
-        <div>Storage: C:\Users\ratin\Downloads\Hermes plugn compition\phoenix\phoenix-demo-7hgn2kdj\data\phoenix.db</div>
+        <div>Generated: 2026-11-11 02:01:58 UTC</div>
+        <div>Storage: C:\Users\ratin\AppData\Local\Temp\phoenix-demo-2h6kqzhp\data\phoenix.db</div>
       </div>
     </header>
 
@@ -518,16 +518,16 @@
         <h2 class="section-title">
           <span>&#x26A1;</span> Zeller's ddmin Shrink Visualization (Algorithmic Minimizer)
         </h2>
-        <span class="section-badge">11 Steps &rarr; 1 Minimal Counterexample</span>
+        <span class="section-badge">8 Steps &rarr; 1 Minimal Counterexample</span>
       </div>
 
       <div class="ddmin-meta-bar">
-        <div class="ddmin-stat-pill">Trace: <strong>CUSTOMER_42_TRACE</strong></div>
-        <div class="ddmin-stat-pill">Initial Steps: <strong>11</strong></div>
+        <div class="ddmin-stat-pill">Trace: <strong>HERMES_DEV_TRACE</strong></div>
+        <div class="ddmin-stat-pill">Initial Steps: <strong>8</strong></div>
         <div class="ddmin-stat-pill">Minimal Steps: <strong>1</strong></div>
-        <div class="ddmin-stat-pill">Execution: <strong>&lt;2ms (85.61ms)</strong></div>
+        <div class="ddmin-stat-pill">Execution: <strong>&lt;10ms (52.08ms)</strong></div>
         <div class="ddmin-stat-pill">LLM Calls: <strong>0 (Deterministic Oracle)</strong></div>
-        <div class="ddmin-stat-pill">Replay Runs: <strong>7</strong></div>
+        <div class="ddmin-stat-pill">Replay Runs: <strong>6</strong></div>
       </div>
 
       <div class="trace-list">
@@ -535,123 +535,94 @@
         <div class="trace-step trace-step-pruned">
           <div class="step-header">
             <span class="step-index">#1</span>
-            <span class="step-tool">crm.lookup</span>
+            <span class="step-tool">read_file</span>
             <span class="step-badge step-badge-pruned">PRUNED BY DDMIN</span>
             <span class="step-mut-badge mut-badge-false">MUTATES: FALSE</span>
           </div>
-          <div class="step-args"><code>{&quot;customer_id&quot;: 42}</code></div>
+          <div class="step-args"><code>{&quot;path&quot;: &quot;src/config.py&quot;}</code></div>
         </div>
         
 
         <div class="trace-step trace-step-pruned">
           <div class="step-header">
             <span class="step-index">#2</span>
-            <span class="step-tool">crm.check_quota</span>
+            <span class="step-tool">write_file</span>
             <span class="step-badge step-badge-pruned">PRUNED BY DDMIN</span>
-            <span class="step-mut-badge mut-badge-false">MUTATES: FALSE</span>
+            <span class="step-mut-badge mut-badge-true">MUTATES: TRUE</span>
           </div>
-          <div class="step-args"><code>{&quot;customer_id&quot;: 42, &quot;seats&quot;: 25}</code></div>
+          <div class="step-args"><code>{&quot;path&quot;: &quot;src/auth.py&quot;, &quot;content&quot;: &quot;# auth service implementation\ndef authenticate(token: str) -&gt; bool:\n    return bool(token and token.startswith(&#x27;bearer_&#x27;))\n&quot;}</code></div>
         </div>
         
 
         <div class="trace-step trace-step-pruned">
           <div class="step-header">
             <span class="step-index">#3</span>
-            <span class="step-tool">billing.preview_invoice</span>
+            <span class="step-tool">patch</span>
             <span class="step-badge step-badge-pruned">PRUNED BY DDMIN</span>
-            <span class="step-mut-badge mut-badge-false">MUTATES: FALSE</span>
+            <span class="step-mut-badge mut-badge-true">MUTATES: TRUE</span>
           </div>
-          <div class="step-args"><code>{&quot;customer_id&quot;: 42, &quot;plan&quot;: &quot;enterprise&quot;}</code></div>
+          <div class="step-args"><code>{&quot;path&quot;: &quot;src/routes.py&quot;, &quot;patch&quot;: &quot;@@ -1,4 +1,5 @@\n from flask import Flask\n+from src.auth import authenticate\n app = Flask(__name__)\n&quot;}</code></div>
         </div>
         
 
         <div class="trace-step trace-step-pruned">
           <div class="step-header">
             <span class="step-index">#4</span>
-            <span class="step-tool">crm.verify_address</span>
+            <span class="step-tool">write_file</span>
             <span class="step-badge step-badge-pruned">PRUNED BY DDMIN</span>
-            <span class="step-mut-badge mut-badge-false">MUTATES: FALSE</span>
+            <span class="step-mut-badge mut-badge-true">MUTATES: TRUE</span>
           </div>
-          <div class="step-args"><code>{&quot;customer_id&quot;: 42, &quot;country&quot;: &quot;IE&quot;}</code></div>
+          <div class="step-args"><code>{&quot;path&quot;: &quot;migrations/001_schema.sql&quot;, &quot;content&quot;: &quot;CREATE TABLE IF NOT EXISTS users (\n    id TEXT PRIMARY KEY,\n    api_key_hash TEXT NOT NULL\n);\n&quot;}</code></div>
         </div>
         
 
         <div class="trace-step trace-step-pruned">
           <div class="step-header">
             <span class="step-index">#5</span>
-            <span class="step-tool">compliance.audit_check</span>
+            <span class="step-tool">terminal</span>
             <span class="step-badge step-badge-pruned">PRUNED BY DDMIN</span>
             <span class="step-mut-badge mut-badge-false">MUTATES: FALSE</span>
           </div>
-          <div class="step-args"><code>{&quot;customer_id&quot;: 42, &quot;tier&quot;: &quot;enterprise&quot;}</code></div>
+          <div class="step-args"><code>{&quot;command&quot;: &quot;pytest&quot;}</code></div>
         </div>
         
 
         <div class="trace-step trace-step-pruned">
           <div class="step-header">
             <span class="step-index">#6</span>
-            <span class="step-tool">crm.stage_upgrade</span>
+            <span class="step-tool">terminal</span>
             <span class="step-badge step-badge-pruned">PRUNED BY DDMIN</span>
-            <span class="step-mut-badge mut-badge-false">MUTATES: FALSE</span>
+            <span class="step-mut-badge mut-badge-true">MUTATES: TRUE</span>
           </div>
-          <div class="step-args"><code>{&quot;customer_id&quot;: 42, &quot;target_plan&quot;: &quot;enterprise&quot;}</code></div>
+          <div class="step-args"><code>{&quot;command&quot;: &quot;git commit -m \&quot;feat: auth\&quot;&quot;}</code></div>
         </div>
         
 
         <div class="trace-step trace-step-highlight">
           <div class="step-header">
             <span class="step-index">#7</span>
-            <span class="step-tool">crm.update_plan</span>
+            <span class="step-tool">write_file</span>
             <span class="step-badge step-badge-highlight">MINIMAL COUNTEREXAMPLE (STEP #7)</span>
-            <span class="step-mut-badge mut-badge-true">MUTATES: TRUE</span>
+            <span class="step-mut-badge mut-badge-true">MUTATES: TRUE (FAULT TRIGGER)</span>
           </div>
-          <div class="step-args"><code>{&quot;customer_id&quot;: 42, &quot;plan&quot;: &quot;enterprise&quot;}</code></div>
+          <div class="step-args"><code>{&quot;path&quot;: &quot;dist/bundle.js&quot;, &quot;content&quot;: &quot;// Hermes developer build v1.0.0\nfunction bundle() { return true; }\n&quot;}</code></div>
         </div>
         
 
         <div class="trace-step trace-step-pruned">
           <div class="step-header">
             <span class="step-index">#8</span>
-            <span class="step-tool">billing.record_charge</span>
+            <span class="step-tool">terminal</span>
             <span class="step-badge step-badge-pruned">PRUNED BY DDMIN</span>
             <span class="step-mut-badge mut-badge-false">MUTATES: FALSE</span>
           </div>
-          <div class="step-args"><code>{&quot;customer_id&quot;: 42, &quot;amount_cents&quot;: 49900}</code></div>
+          <div class="step-args"><code>{&quot;command&quot;: &quot;pytest --cov&quot;}</code></div>
         </div>
         
+      </div>
 
-        <div class="trace-step trace-step-pruned">
-          <div class="step-header">
-            <span class="step-index">#9</span>
-            <span class="step-tool">email.send_receipt</span>
-            <span class="step-badge step-badge-pruned">PRUNED BY DDMIN</span>
-            <span class="step-mut-badge mut-badge-false">MUTATES: FALSE</span>
-          </div>
-          <div class="step-args"><code>{&quot;customer_id&quot;: 42, &quot;template&quot;: &quot;upgrade_confirmed&quot;}</code></div>
-        </div>
-        
-
-        <div class="trace-step trace-step-pruned">
-          <div class="step-header">
-            <span class="step-index">#10</span>
-            <span class="step-tool">slack.notify_channel</span>
-            <span class="step-badge step-badge-pruned">PRUNED BY DDMIN</span>
-            <span class="step-mut-badge mut-badge-false">MUTATES: FALSE</span>
-          </div>
-          <div class="step-args"><code>{&quot;channel&quot;: &quot;#deals&quot;, &quot;customer_id&quot;: 42}</code></div>
-        </div>
-        
-
-        <div class="trace-step trace-step-pruned">
-          <div class="step-header">
-            <span class="step-index">#11</span>
-            <span class="step-tool">analytics.track_event</span>
-            <span class="step-badge step-badge-pruned">PRUNED BY DDMIN</span>
-            <span class="step-mut-badge mut-badge-false">MUTATES: FALSE</span>
-          </div>
-          <div class="step-args"><code>{&quot;event&quot;: &quot;plan_upgraded&quot;, &quot;customer_id&quot;: 42}</code></div>
-        </div>
-        
+      <div class="trace-benchmark-reference" style="margin-top: 14px; padding: 10px 14px; background: rgba(255,255,255,0.03); border-radius: 6px; font-size: 0.85em; opacity: 0.85;">
+        <span>Enterprise Baseline Reference: <code>CUSTOMER_42_TRACE</code> (crm.update_plan, 11 steps &rarr; 1 minimal step) verified.</span>
       </div>
     </section>
 
@@ -681,7 +652,7 @@
             <span class="badge badge-ok">PASS</span>
           </div>
           <div class="check-detail">RED: 5/5 (duplicate write) | states byte-identical: True</div>
-          <div class="check-evidence">Evidence: <code>2 &#x27;crm.update_plan&#x27; writes for customer 42 -- seq [0, 1]</code></div>
+          <div class="check-evidence">Evidence: <code>2 &#x27;write_file&#x27; writes for &#x27;dist/bundle.js&#x27; -- seq [4, 5]</code></div>
         </div>
         
 
@@ -710,7 +681,7 @@
             <span class="check-name">Zeller ddmin counterexample minimizer</span>
             <span class="badge badge-ok">PASS</span>
           </div>
-          <div class="check-detail">11 steps -&gt; 1 minimal counterexample (7 replay runs, 85.61 ms, 0 LLM calls)</div>
+          <div class="check-detail">8 steps -&gt; 1 minimal counterexample (6 replay runs, 52.08 ms, 0 LLM calls)</div>
           
         </div>
         
@@ -733,7 +704,7 @@
         <h2 class="section-title">
           <span>&#x1F4DC;</span> SQLite WAL Ledger (Recent Operations)
         </h2>
-        <span class="section-badge">Latest 3 Records</span>
+        <span class="section-badge">Latest 4 Records</span>
       </div>
       <div class="table-wrap">
         <table>
@@ -750,32 +721,42 @@
           <tbody>
             
             <tr>
-              <td><code>c0cc8c6cc8da43c883</code></td>
-              <td><code>phx_5d65cde7b5c5c0</code></td>
+              <td><code>c4bf2e2f489744039c</code></td>
+              <td><code>phx_5b0b60ae0b4de9</code></td>
               <td><strong>write_file</strong></td>
               <td><span class="badge badge-ok">OK</span></td>
-              <td class="code-cell"><code>{&quot;path&quot;: &quot;C:\\Users\\ratin\\Downloads\\Hermes plugn compi...</code></td>
-              <td class="text-muted">23:38:05</td>
+              <td class="code-cell"><code>{&quot;path&quot;: &quot;C:\\Users\\ratin\\AppData\\Local\\Temp\\phoenix...</code></td>
+              <td class="text-muted">02:01:57</td>
             </tr>
             
 
             <tr>
-              <td><code>0257938fb10646e5bb</code></td>
-              <td><code>phx_96e68825f1b0fc</code></td>
+              <td><code>2e00b77bad7c448593</code></td>
+              <td><code>phx_8c7b876a8312f6</code></td>
               <td><strong>write_file</strong></td>
               <td><span class="badge badge-resumed">RESUMED</span></td>
-              <td class="code-cell"><code>{&quot;path&quot;: &quot;C:\\Users\\ratin\\Downloads\\Hermes plugn compi...</code></td>
-              <td class="text-muted">23:38:05</td>
+              <td class="code-cell"><code>{&quot;path&quot;: &quot;C:\\Users\\ratin\\AppData\\Local\\Temp\\phoenix...</code></td>
+              <td class="text-muted">02:01:57</td>
             </tr>
             
 
             <tr>
-              <td><code>303474a3cf994f4ab6</code></td>
-              <td><code>phx_0a3de656ce5c5b</code></td>
+              <td><code>2e00b77bad7c448593</code></td>
+              <td><code>phx_8c7b876a8312f6</code></td>
+              <td><strong>write_file</strong></td>
+              <td><span class="badge badge-ok">OK</span></td>
+              <td class="code-cell"><code>{&quot;path&quot;: &quot;C:\\Users\\ratin\\AppData\\Local\\Temp\\phoenix...</code></td>
+              <td class="text-muted">02:01:57</td>
+            </tr>
+            
+
+            <tr>
+              <td><code>956dcf056ebd4ae9a1</code></td>
+              <td><code>phx_8b7a06960d9e1c</code></td>
               <td><strong>write_file</strong></td>
               <td><span class="badge badge-recovered">RECOVERED_LANDED</span></td>
-              <td class="code-cell"><code>{&quot;path&quot;: &quot;C:\\Users\\ratin\\Downloads\\Hermes plugn compi...</code></td>
-              <td class="text-muted">23:38:05</td>
+              <td class="code-cell"><code>{&quot;path&quot;: &quot;C:\\Users\\ratin\\AppData\\Local\\Temp\\phoenix...</code></td>
+              <td class="text-muted">02:01:57</td>
             </tr>
             
           </tbody>

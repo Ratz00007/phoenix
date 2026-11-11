@@ -42,21 +42,32 @@ except ImportError:
 
 
 # ---------------------------------------------------------------------------
-# 1. Default 11-Step Enterprise Trace (CUSTOMER_42_TRACE)
+# 1. Real-World Developer Workflow Trace (HERMES_DEV_TRACE) & Enterprise Trace
 # ---------------------------------------------------------------------------
 
+HERMES_DEV_TRACE: list[dict[str, Any]] = [
+    {"step": 1, "tool": "read_file", "args": {"path": "src/config.py"}, "mutates": False, "fault": False},
+    {"step": 2, "tool": "write_file", "args": {"path": "src/auth.py", "content": "# auth service implementation\ndef authenticate(token: str) -> bool:\n    return bool(token and token.startswith('bearer_'))\n"}, "mutates": True, "fault": False},
+    {"step": 3, "tool": "patch", "args": {"path": "src/routes.py", "patch": "@@ -1,4 +1,5 @@\n from flask import Flask\n+from src.auth import authenticate\n app = Flask(__name__)\n"}, "mutates": True, "fault": False},
+    {"step": 4, "tool": "write_file", "args": {"path": "migrations/001_schema.sql", "content": "CREATE TABLE IF NOT EXISTS users (\n    id TEXT PRIMARY KEY,\n    api_key_hash TEXT NOT NULL\n);\n"}, "mutates": True, "fault": False},
+    {"step": 5, "tool": "terminal", "args": {"command": "pytest"}, "mutates": False, "fault": False},
+    {"step": 6, "tool": "terminal", "args": {"command": 'git commit -m "feat: auth"'}, "mutates": True, "fault": False},
+    {"step": 7, "tool": "write_file", "args": {"path": "dist/bundle.js", "content": "// Hermes developer build v1.0.0\nfunction bundle() { return true; }\n"}, "mutates": True, "fault": True},  # triggers post-commit fault
+    {"step": 8, "tool": "terminal", "args": {"command": "pytest --cov"}, "mutates": False, "fault": False},
+]
+
 CUSTOMER_42_TRACE: list[dict[str, Any]] = [
-    {"step": 1, "tool": "crm.lookup", "args": {"customer_id": 42}, "mutates": False},
-    {"step": 2, "tool": "crm.check_quota", "args": {"customer_id": 42, "seats": 25}, "mutates": False},
-    {"step": 3, "tool": "billing.preview_invoice", "args": {"customer_id": 42, "plan": "enterprise"}, "mutates": False},
-    {"step": 4, "tool": "crm.verify_address", "args": {"customer_id": 42, "country": "IE"}, "mutates": False},
-    {"step": 5, "tool": "compliance.audit_check", "args": {"customer_id": 42, "tier": "enterprise"}, "mutates": False},
-    {"step": 6, "tool": "crm.stage_upgrade", "args": {"customer_id": 42, "target_plan": "enterprise"}, "mutates": False},
-    {"step": 7, "tool": "crm.update_plan", "args": {"customer_id": 42, "plan": "enterprise"}, "mutates": True},
-    {"step": 8, "tool": "billing.record_charge", "args": {"customer_id": 42, "amount_cents": 49900}, "mutates": False},
-    {"step": 9, "tool": "email.send_receipt", "args": {"customer_id": 42, "template": "upgrade_confirmed"}, "mutates": False},
-    {"step": 10, "tool": "slack.notify_channel", "args": {"channel": "#deals", "customer_id": 42}, "mutates": False},
-    {"step": 11, "tool": "analytics.track_event", "args": {"event": "plan_upgraded", "customer_id": 42}, "mutates": False},
+    {"step": 1, "tool": "crm.lookup", "args": {"customer_id": 42}, "mutates": False, "fault": False},
+    {"step": 2, "tool": "crm.check_quota", "args": {"customer_id": 42, "seats": 25}, "mutates": False, "fault": False},
+    {"step": 3, "tool": "billing.preview_invoice", "args": {"customer_id": 42, "plan": "enterprise"}, "mutates": False, "fault": False},
+    {"step": 4, "tool": "crm.verify_address", "args": {"customer_id": 42, "country": "IE"}, "mutates": False, "fault": False},
+    {"step": 5, "tool": "compliance.audit_check", "args": {"customer_id": 42, "tier": "enterprise"}, "mutates": False, "fault": False},
+    {"step": 6, "tool": "crm.stage_upgrade", "args": {"customer_id": 42, "target_plan": "enterprise"}, "mutates": False, "fault": False},
+    {"step": 7, "tool": "crm.update_plan", "args": {"customer_id": 42, "plan": "enterprise"}, "mutates": True, "fault": True},
+    {"step": 8, "tool": "billing.record_charge", "args": {"customer_id": 42, "amount_cents": 49900}, "mutates": False, "fault": False},
+    {"step": 9, "tool": "email.send_receipt", "args": {"customer_id": 42, "template": "upgrade_confirmed"}, "mutates": False, "fault": False},
+    {"step": 10, "tool": "slack.notify_channel", "args": {"channel": "#deals", "customer_id": 42}, "mutates": False, "fault": False},
+    {"step": 11, "tool": "analytics.track_event", "args": {"event": "plan_upgraded", "customer_id": 42}, "mutates": False, "fault": False},
 ]
 
 
@@ -242,11 +253,30 @@ def simulate_trace(
             step_num = item.get("step", 0)
             tool = item.get("tool", "")
             args = item.get("args") or {}
-            mutates = item.get("mutates", tool in _MUTATING_TOOLS)
+            mutates = item.get("mutates")
+            if mutates is None:
+                mutates = tool in _MUTATING_TOOLS
+            else:
+                mutates = bool(mutates)
             key = op_id(tool, args)
 
-            # Fault targets the first mutating tool
-            should_fault = (not fault_injected) and (mutates or tool in _MUTATING_TOOLS) and (fault_kind != "none")
+            # Fault targeting logic:
+            # 1. If step explicitly sets fault: True (or triggers_fault: True), it faults.
+            # 2. If step explicitly sets fault: False (or triggers_fault: False), it never faults.
+            # 3. If no step in trace has explicit fault markers, target the first mutating tool.
+            has_explicit_fault = any(
+                (it.get("fault") is True or it.get("triggers_fault") is True)
+                for it in trace
+            )
+            if has_explicit_fault:
+                is_target = bool(item.get("fault") or item.get("triggers_fault"))
+            else:
+                if item.get("fault") is False:
+                    is_target = False
+                else:
+                    is_target = mutates
+
+            should_fault = (not fault_injected) and is_target and (fault_kind != "none")
 
             if should_fault:
                 fault_injected = True
@@ -550,6 +580,24 @@ def ddmin_trace(
     replay_runs = 0
     rounds = 0
 
+    trace_to_run = copy.deepcopy(trace)
+    # Ensure trace has explicit fault markers so subsets don't re-target other steps
+    has_fault_marker = any(
+        (it.get("fault") is not None) or (it.get("triggers_fault") is not None)
+        for it in trace_to_run
+    )
+    if not has_fault_marker:
+        found_target = False
+        for it in trace_to_run:
+            m = it.get("mutates")
+            if m is None:
+                m = it.get("tool") in _MUTATING_TOOLS
+            if m and not found_target:
+                it["fault"] = True
+                found_target = True
+            else:
+                it["fault"] = False
+
     def test(subset: list[dict[str, Any]]) -> bool:
         nonlocal replay_runs
         if not subset:
@@ -559,7 +607,7 @@ def ddmin_trace(
         return res["red"]
 
     # Initial check: full trace must fail
-    if not test(trace):
+    if not test(trace_to_run):
         elapsed_ms = round((time.perf_counter() - t0) * 1000, 2)
         return {
             "initial_steps": len(trace),
@@ -572,7 +620,7 @@ def ddmin_trace(
             "zero_llm_calls": True,
         }
 
-    c_indexed: list[tuple[int, dict[str, Any]]] = list(enumerate(trace))
+    c_indexed: list[tuple[int, dict[str, Any]]] = list(enumerate(trace_to_run))
     n = 2
 
     while len(c_indexed) >= 2:
@@ -732,9 +780,14 @@ def replay_journal_trace(journal: Any) -> dict[str, Any]:
 # 7. Full Suite Runner & Formatter
 # ---------------------------------------------------------------------------
 
-def run_windtunnel_suite(runs: int = 5, journal: Any = None) -> dict[str, Any]:
+def run_windtunnel_suite(
+    runs: int = 5,
+    journal: Any = None,
+    trace: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Execute all 6 G2 kill-gate checks + ddmin minimizer + Phoenix Guard verification."""
-    trace = CUSTOMER_42_TRACE
+    if trace is None:
+        trace = HERMES_DEV_TRACE
     checks: list[dict[str, Any]] = []
 
     # [1/6] clean control
@@ -755,14 +808,17 @@ def run_windtunnel_suite(runs: int = 5, journal: Any = None) -> dict[str, Any]:
     timeout_identical = len({r["state_hash"] for r in timeout_runs}) == 1
     sample_dups = timeout_runs[0]["duplicate_writes"]
     seqs = [w["seq"] for w in sample_dups]
-    dup_tool = sample_dups[0]["tool"] if sample_dups else "crm.update_plan"
+    dup_tool = sample_dups[0]["tool"] if sample_dups else "write_file"
+    dup_args = sample_dups[0].get("args") or {} if sample_dups else {}
+    dup_target = dup_args.get("path") or dup_args.get("customer_id") or dup_args.get("command") or ""
+    target_str = f" for '{dup_target}'" if dup_target else ""
     chk2_passed = (timeout_red == runs) and timeout_identical
     checks.append({
         "id": "timeout_after_commit_unguarded",
         "name": f"timeout_after_commit unguarded ({runs} runs)",
         "passed": chk2_passed,
         "detail": f"RED: {timeout_red}/{runs} (duplicate write) | states byte-identical: {timeout_identical}",
-        "evidence": f"2 '{dup_tool}' writes for customer 42 -- seq {seqs}",
+        "evidence": f"2 '{dup_tool}' writes{target_str} -- seq {seqs}",
     })
 
     # [3/6] determinism_proof
@@ -791,17 +847,28 @@ def run_windtunnel_suite(runs: int = 5, journal: Any = None) -> dict[str, Any]:
 
     # [5/6] ddmin
     ddmin_res = ddmin_trace(trace, fault_kind="timeout_after_commit")
+    culprit = ddmin_res.get("minimal_counterexample")
+    is_valid_culprit = False
+    if culprit is not None:
+        c_tool = culprit.get("tool")
+        c_args = culprit.get("args") or {}
+        if c_tool == "write_file" and c_args.get("path") == "dist/bundle.js":
+            is_valid_culprit = True
+        elif c_tool == "crm.update_plan":
+            is_valid_culprit = True
+        elif culprit.get("fault") or culprit.get("triggers_fault"):
+            is_valid_culprit = True
+
     chk5_passed = (
         (ddmin_res["minimal_steps"] == 1)
-        and (ddmin_res["minimal_counterexample"] is not None)
-        and (ddmin_res["minimal_counterexample"].get("tool") == "crm.update_plan")
+        and is_valid_culprit
     )
     checks.append({
         "id": "ddmin",
         "name": "Zeller ddmin counterexample minimizer",
         "passed": chk5_passed,
         "detail": (
-            f"11 steps -> {ddmin_res['minimal_steps']} minimal counterexample "
+            f"{ddmin_res['initial_steps']} steps -> {ddmin_res['minimal_steps']} minimal counterexample "
             f"({ddmin_res['replay_runs']} replay runs, {ddmin_res['elapsed_ms']} ms, 0 LLM calls)"
         ),
         "counterexample": ddmin_res["minimal_counterexample"],
