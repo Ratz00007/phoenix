@@ -46,7 +46,6 @@ def redact_secrets(val: Any) -> str | None:
             s = json.dumps(val, default=str)
         except Exception:
             s = str(val)
-
     s = _REDACT_KV_RE.sub(r'\1"[REDACTED]"', s)
     s = _REDACT_KV_NONSTR_RE.sub(r'\1"[REDACTED]"', s)
     s = _REDACT_SK_RE.sub('[REDACTED]', s)
@@ -61,7 +60,7 @@ CREATE TABLE IF NOT EXISTS ops (
     op_id       TEXT NOT NULL,
     tool        TEXT NOT NULL,
     args_json   TEXT NOT NULL,
-    status      TEXT NOT NULL,             -- intent | ok | error | resumed | deduped | recovered_landed
+    status      TEXT NOT NULL,
     result_json TEXT,
     error       TEXT,
     session_id  TEXT,
@@ -111,11 +110,42 @@ class Journal:
                 # that do not expose POSIX-style modes.
                 pass
 
+    def _prepare_database_file(self) -> None:
+        """Create the database with owner-only permissions before SQLite opens it."""
+        if self.db_path == ":memory:":
+            return
+        path = Path(self.db_path)
+        try:
+            # O_EXCL makes creation atomic and prevents a permissive umask from
+            # exposing a newly-created database before SQLite opens it.
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        except FileExistsError:
+            # Also correct permissions on databases created by older versions.
+            try:
+                os.chmod(path, 0o600)
+            except OSError:
+                pass
+        except OSError:
+            # Retain SQLite's normal error handling for inaccessible paths;
+            # post-open hardening remains best effort on unusual filesystems.
+            pass
+        else:
+            os.close(fd)
+            try:
+                os.chmod(path, 0o600)
+            except OSError:
+                pass
+        self._harden_file_permissions()
+
     def _connect(self) -> sqlite3.Connection:
         if self._conn is None:
+            if self.db_path != ":memory:":
+                self._prepare_database_file()
             self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
             if self.db_path != ":memory:":
                 self._conn.execute("PRAGMA journal_mode=WAL")
+                # SQLite may create the WAL/SHM files while enabling WAL mode.
+                self._harden_file_permissions()
                 self._conn.execute("PRAGMA synchronous=NORMAL")
             self._conn.executescript(_SCHEMA)
             try:
@@ -165,18 +195,8 @@ class Journal:
             c.execute(
                 "INSERT OR IGNORE INTO ops (attempt_id, op_id, tool, args_json, status, "
                 "session_id, turn_id, tool_call_id, pre_fp_json, ts_intent) VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (
-                    attempt_id,
-                    op_id,
-                    tool,
-                    args_json,
-                    "intent",
-                    session_id,
-                    turn_id,
-                    tool_call_id,
-                    pre_fp_json,
-                    time.time(),
-                ),
+                (attempt_id, op_id, tool, args_json, "intent", session_id, turn_id,
+                 tool_call_id, pre_fp_json, time.time()),
             )
             self._commit(c)
 
@@ -188,14 +208,7 @@ class Journal:
             c.execute(
                 "UPDATE ops SET status=?, result_json=?, error=?, ts_done=? "
                 "WHERE attempt_id=? AND op_id=?",
-                (
-                    status,
-                    result_json,
-                    error_clean,
-                    time.time(),
-                    attempt_id,
-                    op_id,
-                ),
+                (status, result_json, error_clean, time.time(), attempt_id, op_id),
             )
             self._commit(c)
 
@@ -205,15 +218,8 @@ class Journal:
             result_json = redact_secrets(result)
             error_clean = redact_secrets(error) if error else None
             c.execute(
-                "UPDATE ops SET status=?, result_json=?, error=?, ts_done=? "
-                "WHERE attempt_id=?",
-                (
-                    status,
-                    result_json,
-                    error_clean,
-                    time.time(),
-                    attempt_id,
-                ),
+                "UPDATE ops SET status=?, result_json=?, error=?, ts_done=? WHERE attempt_id=?",
+                (status, result_json, error_clean, time.time(), attempt_id),
             )
             self._commit(c)
 
@@ -230,42 +236,33 @@ class Journal:
     def set_meta(self, key: str, val: str) -> None:
         with self._lock:
             c = self._connect()
-            c.execute(
-                "INSERT OR REPLACE INTO meta (key, val) VALUES (?, ?)",
-                (key, str(val)),
-            )
+            c.execute("INSERT OR REPLACE INTO meta (key, val) VALUES (?, ?)", (key, str(val)))
             self._commit(c)
 
     # -- reads --------------------------------------------------------------
 
     def get_meta(self, key: str, default: str = "") -> str:
-        row = self._connect().execute(
-            "SELECT val FROM meta WHERE key=?",
-            (key,),
-        ).fetchone()
+        row = self._connect().execute("SELECT val FROM meta WHERE key=?", (key,)).fetchone()
         return row[0] if row else default
 
     def latest_outcome(self, op_id):
         return self._connect().execute(
             "SELECT status, result_json, error FROM ops "
             "WHERE op_id=? AND status IN ('ok','error','resumed','recovered_landed','deduped') "
-            "ORDER BY ts_done DESC LIMIT 1",
-            (op_id,),
+            "ORDER BY ts_done DESC LIMIT 1", (op_id,),
         ).fetchone()
 
     def latest_success(self, op_id: str, session_id: str | None = None) -> tuple[str, str | None] | None:
         if session_id:
             return self._connect().execute(
-                "SELECT status, result_json FROM ops "
-                "WHERE op_id=? AND session_id=? AND status IN ('ok','resumed','recovered_landed') "
-                "ORDER BY ts_done DESC LIMIT 1",
+                "SELECT status, result_json FROM ops WHERE op_id=? AND session_id=? "
+                "AND status IN ('ok','resumed','recovered_landed') ORDER BY ts_done DESC LIMIT 1",
                 (op_id, session_id),
             ).fetchone()
         return self._connect().execute(
-            "SELECT status, result_json FROM ops "
-            "WHERE op_id=? AND (session_id IS NULL OR session_id='') AND status IN ('ok','resumed','recovered_landed') "
-            "ORDER BY ts_done DESC LIMIT 1",
-            (op_id,),
+            "SELECT status, result_json FROM ops WHERE op_id=? AND (session_id IS NULL OR session_id='') "
+            "AND status IN ('ok','resumed','recovered_landed') ORDER BY ts_done DESC LIMIT 1",
+n            (op_id,),
         ).fetchone()
 
     def in_flight(self):
@@ -291,10 +288,7 @@ class Journal:
         ).fetchone()
 
     def get_pre_fp(self, attempt_id) -> dict | None:
-        row = self._connect().execute(
-            "SELECT pre_fp_json FROM ops WHERE attempt_id=?",
-            (attempt_id,),
-        ).fetchone()
+        row = self._connect().execute("SELECT pre_fp_json FROM ops WHERE attempt_id=?", (attempt_id,)).fetchone()
         if not row or not row[0]:
             return None
         try:
@@ -327,11 +321,8 @@ class Journal:
             c = self._connect()
             cutoff_ts = time.time() - (max_age_days * 86400)
             cursor = c.execute(
-                "DELETE FROM ops WHERE status != 'intent' AND ("
-                "  ts_intent < ? OR attempt_id NOT IN ("
-                "    SELECT attempt_id FROM ops ORDER BY ts_intent DESC LIMIT ?"
-                "  )"
-                ")",
+                "DELETE FROM ops WHERE status != 'intent' AND (ts_intent < ? OR attempt_id NOT IN ("
+                "SELECT attempt_id FROM ops ORDER BY ts_intent DESC LIMIT ?))",
                 (cutoff_ts, max(1, max_rows)),
             )
             deleted = cursor.rowcount if cursor.rowcount > 0 else 0
@@ -343,38 +334,25 @@ class Journal:
         rows = self._connect().execute(
             "SELECT attempt_id, op_id, tool, args_json, status, result_json, error, "
             "session_id, turn_id, ts_intent, ts_done FROM ("
-            "  SELECT attempt_id, op_id, tool, args_json, status, result_json, error, "
-            "  session_id, turn_id, ts_intent, ts_done, rowid FROM ops "
-            "  ORDER BY ts_intent DESC, rowid DESC LIMIT ?"
-            ") ORDER BY ts_intent ASC, rowid ASC",
+            "SELECT attempt_id, op_id, tool, args_json, status, result_json, error, "
+            "session_id, turn_id, ts_intent, ts_done, rowid FROM ops "
+            "ORDER BY ts_intent DESC, rowid DESC LIMIT ?) ORDER BY ts_intent ASC, rowid ASC",
             (limit,),
         ).fetchall()
         out = []
         for r in rows:
-            args = None
-            if r[3]:
-                try:
-                    args = json.loads(r[3])
-                except Exception:
-                    args = r[3]
-            res = None
-            if r[5] is not None:
-                try:
-                    res = json.loads(r[5])
-                except Exception:
-                    res = r[5]
+            try:
+                args = json.loads(r[3]) if r[3] else None
+            except Exception:
+                args = r[3]
+            try:
+                res = json.loads(r[5]) if r[5] is not None else None
+            except Exception:
+                res = r[5]
             out.append({
-                "attempt_id": r[0],
-                "op_id": r[1],
-                "tool": r[2],
-                "args": args,
-                "status": r[4],
-                "result": res,
-                "error": r[6],
-                "session_id": r[7],
-                "turn_id": r[8],
-                "ts_intent": r[9],
-                "ts_done": r[10],
+                "attempt_id": r[0], "op_id": r[1], "tool": r[2], "args": args,
+                "status": r[4], "result": res, "error": r[6], "session_id": r[7],
+                "turn_id": r[8], "ts_intent": r[9], "ts_done": r[10],
             })
         return out
 
@@ -391,10 +369,7 @@ class Journal:
             "SELECT COUNT(*) FROM ops WHERE status='recovered_landed' AND attempt_id NOT LIKE '%_recov'"
         ).fetchone()[0]
         return {
-            "total": total,
-            "committed": committed,
-            "errors": errors,
-            "in_flight": in_flight,
-            "deduped": deduped,
+            "total": total, "committed": committed, "errors": errors,
+            "in_flight": in_flight, "deduped": deduped,
             "recovered_landed": recovered_landed,
         }
