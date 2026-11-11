@@ -14,6 +14,7 @@ Lifecycle of a row:
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 import threading
@@ -72,6 +73,8 @@ CREATE TABLE IF NOT EXISTS ops (
 );
 CREATE INDEX IF NOT EXISTS idx_ops_op_id ON ops(op_id);
 CREATE INDEX IF NOT EXISTS idx_ops_status ON ops(status);
+CREATE INDEX IF NOT EXISTS idx_ops_ts_intent ON ops(ts_intent);
+CREATE INDEX IF NOT EXISTS idx_ops_session_id ON ops(session_id);
 CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     val TEXT NOT NULL
@@ -95,6 +98,11 @@ class Journal:
         if self._conn is None:
             self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
             if self.db_path != ":memory:":
+                try:
+                    if os.path.exists(self.db_path):
+                        os.chmod(self.db_path, 0o600)
+                except Exception:
+                    pass
                 self._conn.execute("PRAGMA journal_mode=WAL")
                 self._conn.execute("PRAGMA synchronous=NORMAL")
             self._conn.executescript(_SCHEMA)
@@ -102,11 +110,21 @@ class Journal:
                 self._conn.execute("ALTER TABLE ops ADD COLUMN pre_fp_json TEXT")
             except sqlite3.OperationalError:
                 pass
+            if self.db_path != ":memory:":
+                try:
+                    self.prune(max_age_days=7, max_rows=10000)
+                except Exception:
+                    pass
         return self._conn
 
     def close(self) -> None:
         with self._lock:
             if self._conn is not None:
+                if self.db_path != ":memory:":
+                    try:
+                        self.prune(max_age_days=7, max_rows=10000)
+                    except Exception:
+                        pass
                 self._conn.close()
                 self._conn = None
 
@@ -218,10 +236,17 @@ class Journal:
             (op_id,),
         ).fetchone()
 
-    def latest_success(self, op_id) -> tuple[str, str | None] | None:
+    def latest_success(self, op_id: str, session_id: str | None = None) -> tuple[str, str | None] | None:
+        if session_id:
+            return self._connect().execute(
+                "SELECT status, result_json FROM ops "
+                "WHERE op_id=? AND session_id=? AND status IN ('ok','resumed','recovered_landed') "
+                "ORDER BY ts_done DESC LIMIT 1",
+                (op_id, session_id),
+            ).fetchone()
         return self._connect().execute(
             "SELECT status, result_json FROM ops "
-            "WHERE op_id=? AND status IN ('ok','resumed','recovered_landed') "
+            "WHERE op_id=? AND (session_id IS NULL OR session_id='') AND status IN ('ok','resumed','recovered_landed') "
             "ORDER BY ts_done DESC LIMIT 1",
             (op_id,),
         ).fetchone()
@@ -260,11 +285,17 @@ class Journal:
         except (json.JSONDecodeError, ValueError):
             return None
 
-    def latest_pre_fp(self, op_id: str) -> dict | None:
-        row = self._connect().execute(
-            "SELECT pre_fp_json FROM ops WHERE op_id = ? AND pre_fp_json IS NOT NULL ORDER BY ts_intent DESC LIMIT 1",
-            (op_id,),
-        ).fetchone()
+    def latest_pre_fp(self, op_id: str, session_id: str | None = None) -> dict | None:
+        if session_id:
+            row = self._connect().execute(
+                "SELECT pre_fp_json FROM ops WHERE op_id = ? AND session_id = ? AND pre_fp_json IS NOT NULL ORDER BY ts_intent DESC LIMIT 1",
+                (op_id, session_id),
+            ).fetchone()
+        else:
+            row = self._connect().execute(
+                "SELECT pre_fp_json FROM ops WHERE op_id = ? AND (session_id IS NULL OR session_id='') AND pre_fp_json IS NOT NULL ORDER BY ts_intent DESC LIMIT 1",
+                (op_id,),
+            ).fetchone()
         if not row or not row[0]:
             return None
         try:
@@ -273,14 +304,32 @@ class Journal:
         except (json.JSONDecodeError, ValueError):
             return None
 
+    def prune(self, max_age_days: int = 7, max_rows: int = 10000) -> int:
+        """Prune ops older than max_age_days or exceeding max_rows (excluding in-flight rows)."""
+        with self._lock:
+            c = self._connect()
+            cutoff_ts = time.time() - (max_age_days * 86400)
+            cursor = c.execute(
+                "DELETE FROM ops WHERE status != 'intent' AND ("
+                "  ts_intent < ? OR attempt_id NOT IN ("
+                "    SELECT attempt_id FROM ops ORDER BY ts_intent DESC LIMIT ?"
+                "  )"
+                ")",
+                (cutoff_ts, max(1, max_rows)),
+            )
+            deleted = cursor.rowcount if cursor.rowcount > 0 else 0
+            if deleted > 0:
+                c.commit()
+            return deleted
+
     def recent(self, limit: int = 25) -> list[dict]:
         rows = self._connect().execute(
             "SELECT attempt_id, op_id, tool, args_json, status, result_json, error, "
             "session_id, turn_id, ts_intent, ts_done FROM ("
             "  SELECT attempt_id, op_id, tool, args_json, status, result_json, error, "
-            "  session_id, turn_id, ts_intent, ts_done FROM ops "
-            "  ORDER BY ts_intent DESC LIMIT ?"
-            ") ORDER BY ts_intent ASC",
+            "  session_id, turn_id, ts_intent, ts_done, rowid FROM ops "
+            "  ORDER BY ts_intent DESC, rowid DESC LIMIT ?"
+            ") ORDER BY ts_intent ASC, rowid ASC",
             (limit,),
         ).fetchall()
         out = []

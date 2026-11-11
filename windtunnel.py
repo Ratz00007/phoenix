@@ -249,6 +249,7 @@ def simulate_trace(
 
             mw = fallback_mw
 
+        trace_session_id = f"wt_{uuid.uuid4().hex[:8]}"
         for item in trace:
             step_num = item.get("step", 0)
             tool = item.get("tool", "")
@@ -296,7 +297,7 @@ def simulate_trace(
                         raise TimeoutError("gateway timed out after 30000ms (write committed)")
 
                     try:
-                        mw(tool_name=tool, args=args, next_call=next_call_attempt1)
+                        mw(tool_name=tool, args=args, next_call=next_call_attempt1, session_id=trace_session_id)
                     except (TimeoutError, Exception):
                         pass
 
@@ -328,7 +329,7 @@ def simulate_trace(
                         return item.get("mock_result", {"ok": True})
 
                     try:
-                        mw(tool_name=tool, args=args, next_call=next_call_attempt2)
+                        mw(tool_name=tool, args=args, next_call=next_call_attempt2, session_id=trace_session_id)
                     except Exception:
                         pass
 
@@ -363,7 +364,7 @@ def simulate_trace(
                         raise RuntimeError("RateLimitError: 429 Too Many Requests (retry-after=1s)")
 
                     try:
-                        mw(tool_name=tool, args=args, next_call=next_call_429)
+                        mw(tool_name=tool, args=args, next_call=next_call_429, session_id=trace_session_id)
                     except Exception:
                         pass
 
@@ -388,7 +389,7 @@ def simulate_trace(
                         return item.get("mock_result", {"ok": True})
 
                     try:
-                        mw(tool_name=tool, args=args, next_call=next_call_retry)
+                        mw(tool_name=tool, args=args, next_call=next_call_retry, session_id=trace_session_id)
                     except Exception:
                         pass
 
@@ -409,7 +410,7 @@ def simulate_trace(
                         raise ValueError("JSONDecodeError: truncated payload at byte 41")
 
                     try:
-                        mw(tool_name=tool, args=args, next_call=next_call_malformed)
+                        mw(tool_name=tool, args=args, next_call=next_call_malformed, session_id=trace_session_id)
                     except Exception:
                         pass
 
@@ -431,7 +432,7 @@ def simulate_trace(
                         raise TimeoutError("TimeoutError: connection reset before commit")
 
                     try:
-                        mw(tool_name=tool, args=args, next_call=next_call_clean_timeout)
+                        mw(tool_name=tool, args=args, next_call=next_call_clean_timeout, session_id=trace_session_id)
                     except Exception:
                         pass
 
@@ -456,7 +457,7 @@ def simulate_trace(
                         return item.get("mock_result", {"ok": True})
 
                     try:
-                        mw(tool_name=tool, args=args, next_call=next_call_clean_retry)
+                        mw(tool_name=tool, args=args, next_call=next_call_clean_retry, session_id=trace_session_id)
                     except Exception:
                         pass
 
@@ -487,7 +488,7 @@ def simulate_trace(
                         return item.get("mock_result", {"ok": True})
 
                     try:
-                        mw(tool_name=tool, args=args, next_call=next_call_clean_mutate)
+                        mw(tool_name=tool, args=args, next_call=next_call_clean_mutate, session_id=trace_session_id)
                     except Exception:
                         pass
 
@@ -516,7 +517,7 @@ def simulate_trace(
                         return item.get("mock_result", {"ok": True})
 
                     try:
-                        mw(tool_name=tool, args=args, next_call=next_call_clean_read)
+                        mw(tool_name=tool, args=args, next_call=next_call_clean_read, session_id=trace_session_id)
                     except Exception:
                         pass
 

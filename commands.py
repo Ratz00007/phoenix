@@ -20,18 +20,23 @@ def recover_cmd(raw_args: str = "") -> str:
 resume_cmd = recover_cmd
 
 
+def report_cmd(raw_args: str = "") -> str:
+    """Owner command handler for generating Phoenix HTML forensic report."""
+    return get_app().report(raw_args)
+
+
 def setup_cli(parser) -> None:
     """Configure argparse arguments for `hermes phoenix` CLI subcommand."""
     parser.add_argument(
         "action",
         nargs="?",
         default="status",
-        help="Action to perform: status (default), recover, windtunnel, guard, report, explain, clear",
+        help="Action to perform: status (default), recover, windtunnel, guard, prune, report, explain, clear",
     )
     parser.add_argument(
         "params",
         nargs="*",
-        help="Parameters for the action (e.g. op_id for explain/recover, on/off for guard)",
+        help="Parameters for the action (e.g. op_id for explain/recover, on/off for guard, path for report)",
     )
 
 

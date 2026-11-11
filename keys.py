@@ -35,11 +35,16 @@ def canonical_json(args) -> str:
     return json.dumps(_canonical(args), sort_keys=True, separators=(",", ":"), default=str)
 
 
-def op_id(tool_name: str, args) -> str:
+def op_id(tool_name: str, args, idempotency_key: str | None = None) -> str:
     """Return a short, stable idempotency key for a tool invocation."""
-    if isinstance(args, dict) and args.get("idempotency_key"):
+    ik = idempotency_key
+    if not ik and isinstance(args, dict):
+        ik = args.get("idempotency_key") or args.get("_idempotency_key")
+        if not ik and isinstance(args.get("metadata"), dict):
+            ik = args.get("metadata", {}).get("idempotency_key")
+    if ik:
         payload = json.dumps(
-            [tool_name, {"idempotency_key": str(args["idempotency_key"])}],
+            [tool_name, {"idempotency_key": str(ik)}],
             sort_keys=True,
             separators=(",", ":"),
             default=str,

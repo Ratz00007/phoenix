@@ -53,7 +53,7 @@ class App:
     def __init__(self) -> None:
         self.ctx = None
         self.journal: Journal | None = None
-        self._guard_enabled: bool = True
+        self._guard_enabled: bool = False
 
     def bind(self, ctx) -> None:
         self.ctx = ctx
@@ -65,6 +65,7 @@ class App:
         if self.journal is not None:
             self.journal.close()
         self.journal = Journal(self._data_dir(), db_path=self._db_path())
+        self._guard_enabled = False
 
     def close(self) -> None:
         """Close the journal if open and set self.journal = None."""
@@ -74,6 +75,7 @@ class App:
             except Exception:
                 pass
             self.journal = None
+        self._guard_enabled = False
 
     @property
     def guard_enabled(self) -> bool:
@@ -82,8 +84,8 @@ class App:
             j = self._journal()
             if hasattr(j, "get_meta"):
                 val = j.get_meta("guard_enabled")
-                if val:
-                    self._guard_enabled = str(val).strip() in ("1", "true", "True", "on", "yes")
+                if val is not None and str(val).strip():
+                    self._guard_enabled = str(val).strip().lower() in ("1", "true", "on", "yes")
         except Exception:
             pass
         return self._guard_enabled
@@ -145,6 +147,8 @@ class App:
             if r in ("off", "false", "0", "disable"):
                 return self.set_guard(False)
             return f"Phoenix idempotency guard: {'ON' if self.guard_enabled else 'OFF'}"
+        if subcmd == "prune":
+            return self.prune(rest)
         return self.status_text()
 
     def status_text(self, session_id: str | None = None, verbose: bool = False) -> str:
@@ -381,10 +385,30 @@ class App:
     resume = recover
 
     def report(self, raw_args: str = "") -> str:
+        from pathlib import Path
         from .report import generate_html_report
-        out_path = raw_args.strip() or None
+
+        reports_dir = Path(self._data_dir()) / "reports"
+        reports_dir.mkdir(parents=True, exist_ok=True)
+
+        target = raw_args.strip()
+        out_path = target if target else str(reports_dir / "phoenix-report.html")
         path = generate_html_report(self, out_path)
         return f"Phoenix HTML forensic report written to: {path}"
+
+    def prune(self, raw_args: str = "") -> str:
+        parts = raw_args.strip().split() if raw_args.strip() else []
+        days = 7
+        rows = 10000
+        try:
+            if len(parts) >= 1:
+                days = int(parts[0])
+            if len(parts) >= 2:
+                rows = int(parts[1])
+        except ValueError:
+            pass
+        deleted = self._journal().prune(max_age_days=days, max_rows=rows)
+        return f"Phoenix ledger pruned: removed {deleted} expired records (retention: {days} days, {rows} max rows)."
 
     def system_prompt_alert(self, session_info: Any = None, *args: Any, **kwargs: Any) -> str:
         inflight = self._journal().in_flight()
@@ -456,10 +480,10 @@ class App:
                     j.mark_resumed(attempt_id, result=landed_result)
                 lines.append(f"  - [{clean_tool}] {clean_op}: target ALREADY mutated on disk -> safe to mark recovered_landed")
             else:
-                lines.append(f"  - [{clean_tool}] {clean_op}: target unchanged -> needs replay (human confirmation recommended; run /recover or phoenix_ledger(action='recover'))")
+                lines.append(f"  - [{clean_tool}] {clean_op}: target unchanged -> needs replay (run /recover)")
 
         lines.append(
-            "Advise the user to run /recover or call phoenix_ledger(action='recover') with human confirmation to replay safely without duplicate side-effects."
+            "Advise the user to run /recover in chat to safely complete interrupted operations."
         )
         return "\n".join(lines)
 

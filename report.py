@@ -740,7 +740,10 @@ def generate_html_report(app: Any, output_path: str | None = None) -> str:
 </html>
 """
 
-    target_path = output_path or os.path.join(os.getcwd(), "phoenix-report.html")
+    if output_path and str(output_path).strip():
+        target_path = str(output_path).strip()
+    else:
+        target_path = os.path.join(str(app._data_dir()), "reports", "phoenix-report.html")
     resolved_path = os.path.abspath(target_path)
 
     os.makedirs(os.path.dirname(resolved_path), exist_ok=True)

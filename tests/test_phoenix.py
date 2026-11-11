@@ -412,16 +412,16 @@ class TestMiddlewareAndGuard(Base):
             call_count += 1
             return {"customer_id": args["customer_id"], "plan": "enterprise"}
 
-        args = {"customer_id": 42, "plan": "enterprise"}
+        args = {"customer_id": 42, "plan": "enterprise", "idempotency_key": "req_crm_42"}
 
         # First call: executes tool normally
-        res1 = mw.tool_execution_middleware(tool_name="crm.update_plan", args=args, next_call=mutate_tool)
+        res1 = mw.tool_execution_middleware(tool_name="crm.update_plan", args=args, next_call=mutate_tool, session_id="s1")
         self.assertEqual(res1, {"customer_id": 42, "plan": "enterprise"})
         self.assertEqual(call_count, 1)
         self.assertEqual(app.journal.stats()["committed"], 1)
 
         # Second call (same tool + args): Phoenix Guard deduplicates!
-        res2 = mw.tool_execution_middleware(tool_name="crm.update_plan", args=args, next_call=mutate_tool)
+        res2 = mw.tool_execution_middleware(tool_name="crm.update_plan", args=args, next_call=mutate_tool, session_id="s1")
         self.assertEqual(res2, {"customer_id": 42, "plan": "enterprise"})
         self.assertEqual(call_count, 1)  # mutate_tool NOT called again!
         self.assertEqual(app.journal.stats()["deduped"], 1)
@@ -438,14 +438,14 @@ class TestMiddlewareAndGuard(Base):
             call_count += 1
             return {"customer_id": args["customer_id"], "plan": "enterprise"}
 
-        args = {"customer_id": 42, "plan": "enterprise"}
+        args = {"customer_id": 42, "plan": "enterprise", "idempotency_key": "req_crm_42"}
 
         # First call
-        mw.tool_execution_middleware(tool_name="crm.update_plan", args=args, next_call=mutate_tool)
+        mw.tool_execution_middleware(tool_name="crm.update_plan", args=args, next_call=mutate_tool, session_id="s1")
         self.assertEqual(call_count, 1)
 
         # Second call: guard is OFF, so tool is called a second time
-        mw.tool_execution_middleware(tool_name="crm.update_plan", args=args, next_call=mutate_tool)
+        mw.tool_execution_middleware(tool_name="crm.update_plan", args=args, next_call=mutate_tool, session_id="s1")
         self.assertEqual(call_count, 2)
         self.assertEqual(app.journal.stats()["deduped"], 0)
 
@@ -592,11 +592,17 @@ class TestToolsAndCLI(Base):
         attempt = uuid.uuid4().hex
         get_app().journal.record_intent(attempt, "k1", "terminal", {"command": "echo recover"})
 
+        # Model-invoked recover is restricted
         res_raw = phoenix_ledger(action="recover")
         res = json.loads(res_raw)
-        self.assertEqual(res["status"], "ok")
-        self.assertIn("resumed exactly once", res["output"])
-        self.assertEqual(res["in_flight_remaining"], 0)
+        self.assertEqual(res["status"], "error")
+        self.assertIn("Action 'recover' is restricted to human owner commands", res["error"])
+        self.assertIn("/recover", res["error"])
+
+        # Human owner runs recover command
+        rec_res = get_app().recover()
+        self.assertIn("resumed exactly once", rec_res)
+        self.assertEqual(len(get_app().journal.in_flight()), 0)
 
     def test_phoenix_ledger_explain(self):
         get_app().bind(FakeCtx())
@@ -621,20 +627,29 @@ class TestToolsAndCLI(Base):
     def test_phoenix_ledger_clear(self):
         get_app().bind(FakeCtx())
         get_app().journal.record_intent("a1", "k1", "t", {})
+        # Model-invoked clear is restricted
         res = json.loads(phoenix_ledger(action="clear"))
-        self.assertEqual(res["status"], "ok")
+        self.assertEqual(res["status"], "error")
+        self.assertIn("Action 'clear' is restricted to human owner commands", res["error"])
+        # Human owner runs clear via slash command
+        clear_out = get_app().status("clear")
+        self.assertIn("cleared", clear_out)
         self.assertEqual(get_app().journal.stats()["in_flight"], 0)
 
     def test_phoenix_ledger_guard_toggles(self):
         get_app().bind(FakeCtx())
         res_off = json.loads(phoenix_ledger(action="guard_off"))
-        self.assertEqual(res_off["status"], "ok")
-        self.assertFalse(res_off["guard_enabled"])
-        self.assertFalse(get_app().guard_enabled)
+        self.assertEqual(res_off["status"], "error")
+        self.assertIn("Action 'guard_off' is restricted to human owner commands", res_off["error"])
 
         res_on = json.loads(phoenix_ledger(action="guard_on"))
-        self.assertEqual(res_on["status"], "ok")
-        self.assertTrue(res_on["guard_enabled"])
+        self.assertEqual(res_on["status"], "error")
+        self.assertIn("Action 'guard_on' is restricted to human owner commands", res_on["error"])
+
+        # Owner commands work
+        get_app().set_guard(False)
+        self.assertFalse(get_app().guard_enabled)
+        get_app().set_guard(True)
         self.assertTrue(get_app().guard_enabled)
 
     def test_phoenix_ledger_unknown_action(self):
@@ -648,6 +663,13 @@ class TestToolsAndCLI(Base):
         res = json.loads(res_raw)
         self.assertTrue(res["passed"])
         self.assertEqual(len(res["checks"]), 6)
+
+        # Capping runs between 1 and 20
+        res_capped_high = json.loads(phoenix_windtunnel(runs=100))
+        self.assertEqual(res_capped_high["summary"]["runs"], 20)
+
+        res_capped_low = json.loads(phoenix_windtunnel(runs=-5))
+        self.assertEqual(res_capped_low["summary"]["runs"], 1)
 
     def test_cli_setup_and_handler(self):
         parser = argparse.ArgumentParser()
@@ -854,10 +876,10 @@ class TestV030Features(Base):
 
         args = {"path": str(target), "content": "committed_once"}
         with self.assertRaises(TimeoutError):
-            mw.tool_execution_middleware(tool_name="write_file", args=args, next_call=flaky_write)
+            mw.tool_execution_middleware(tool_name="write_file", args=args, next_call=flaky_write, session_id="sess_fuzzy")
 
         # Retry of the exact same call must see that the target file already mutated on Attempt 1
-        res2 = mw.tool_execution_middleware(tool_name="write_file", args=args, next_call=flaky_write)
+        res2 = mw.tool_execution_middleware(tool_name="write_file", args=args, next_call=flaky_write, session_id="sess_fuzzy")
         self.assertEqual(calls, 1, "Second attempt should be short-circuited by latest_pre_fp + has_target_changed!")
         self.assertIsInstance(res2, dict)
         self.assertTrue(res2.get("deduped"))
@@ -903,14 +925,33 @@ class TestV030Features(Base):
 
     def test_html_forensic_report_and_dashboard_surface(self):
         get_app().bind(FakeCtx())
-        out_html = Path(self.tmp) / "test-phoenix-report.html"
-        res_json = json.loads(phoenix_ledger(action="report", target=str(out_html)))
+        # Model-chosen report: target filename is bare name, sandboxed to app._data_dir() / "reports"
+        res_json = json.loads(phoenix_ledger(action="report", target="test-phoenix-report.html"))
         self.assertEqual(res_json["status"], "ok")
+        out_html = Path(res_json["report_path"])
         self.assertTrue(out_html.is_file())
+        self.assertEqual(out_html.name, "test-phoenix-report.html")
+        expected_dir = Path(get_app()._data_dir()) / "reports"
+        self.assertEqual(out_html.parent.resolve(), expected_dir.resolve())
+
         html_text = out_html.read_text(encoding="utf-8")
         self.assertIn("<!doctype html>", html_text.lower())
         self.assertIn("crm.update_plan", html_text)
         self.assertNotIn("<script", html_text.lower())
+
+        # Test traversal rejection: ../../evil.html defaults to phoenix-report.html inside reports_dir
+        res_trav = json.loads(phoenix_ledger(action="report", target="../../evil.html"))
+        self.assertEqual(res_trav["status"], "ok")
+        trav_html = Path(res_trav["report_path"])
+        self.assertEqual(trav_html.name, "phoenix-report.html")
+        self.assertEqual(trav_html.parent.resolve(), expected_dir.resolve())
+        self.assertTrue(trav_html.is_file())
+
+        # Test owner-typed command /phoenix report <path>
+        custom_out = Path(self.tmp) / "owner-custom-report.html"
+        out_msg = get_app().report(str(custom_out))
+        self.assertIn(str(custom_out), out_msg)
+        self.assertTrue(custom_out.is_file())
 
         dash_manifest = ROOT / "dashboard" / "manifest.json"
         self.assertTrue(dash_manifest.is_file())
@@ -953,7 +994,9 @@ class TestDarioSafetyRulesAndFixes(Base):
         alert = get_app().system_prompt_alert({"session": 123})
         self.assertIn("[PHOENIX WAL CRASH ALERT]", alert)
         self.assertNotIn("\n[MALICIOUS INSTRUCTION", alert)
-        self.assertIn("needs replay (human confirmation recommended; run /recover or phoenix_ledger(action='recover'))", alert)
+        self.assertIn("needs replay (run /recover)", alert)
+        self.assertIn("Advise the user to run /recover in chat to safely complete interrupted operations.", alert)
+        self.assertNotIn("phoenix_ledger", alert)
 
     def test_system_prompt_alert_fully_committed_marks_recovered_landed(self):
         ctx = FakeCtx()
@@ -1134,6 +1177,186 @@ class TestDarioSafetyRulesAndFixes(Base):
         ret = judge_eval.main(silent=True, skip_unit_tests=True)
         self.assertEqual(ret, 0)
 
+    def test_dont_write_bytecode_not_set(self):
+        import subprocess
+        res = subprocess.run(
+            [sys.executable, "-c", "import sys; import phoenix; print(sys.dont_write_bytecode)"],
+            cwd=str(ROOT.parent),
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(res.returncode, 0)
+        self.assertIn("False", res.stdout)
+
+    def test_phoenix_ledger_schema_read_only(self):
+        try:
+            from phoenix.tools import PHOENIX_LEDGER_SCHEMA, PHOENIX_WINDTUNNEL_SCHEMA
+        except ImportError:
+            from tools import PHOENIX_LEDGER_SCHEMA, PHOENIX_WINDTUNNEL_SCHEMA
+        actions = PHOENIX_LEDGER_SCHEMA["parameters"]["properties"]["action"]["enum"]
+        self.assertEqual(actions, ["status", "explain", "report"])
+        self.assertNotIn("recover", actions)
+        self.assertNotIn("clear", actions)
+        self.assertNotIn("guard_on", actions)
+        self.assertIn("restricted to human owner slash commands", PHOENIX_LEDGER_SCHEMA["description"])
+
+
+class TestMaintainerReviewItems(Base):
+    """Specific regression and validation tests for Maintainer Review Items 2, 4, and 5."""
+
+    def test_guard_default_off(self):
+        """Item 1: Idempotency guard must be opt-in (default OFF)."""
+        app = get_app()
+        app.bind(FakeCtx())
+        # Without explicit toggle, guard_enabled must be False
+        self.assertFalse(app.guard_enabled)
+
+    def test_read_only_tools_never_cached_even_with_guard_on(self):
+        """Item 1: Guard on must NEVER cache read-only tools."""
+        app = get_app()
+        app.bind(FakeCtx())
+        app.set_guard(True)
+
+        for tool_name, args in [
+            ("read_file", {"path": "test.txt"}),
+            ("web_search", {"query": "python sqlite"}),
+            ("fetch_web_page", {"url": "https://example.com"}),
+            ("terminal", {"command": "git status"}),
+            ("terminal", {"command": "cat test.txt"}),
+        ]:
+            call_count = 0
+
+            def dummy_call(a):
+                nonlocal call_count
+                call_count += 1
+                return {"result": f"call_{call_count}"}
+
+            r1 = mw.tool_execution_middleware(tool_name=tool_name, args=args, next_call=dummy_call, session_id="s1")
+            r2 = mw.tool_execution_middleware(tool_name=tool_name, args=args, next_call=dummy_call, session_id="s1")
+            self.assertEqual(call_count, 2, f"{tool_name} was inappropriately cached!")
+            self.assertEqual(r1["result"], "call_1")
+            self.assertEqual(r2["result"], "call_2")
+
+    def test_never_cached_across_sessions(self):
+        """Item 1: Guard on must NEVER cache across different sessions."""
+        app = get_app()
+        app.bind(FakeCtx())
+        app.set_guard(True)
+
+        f = Path(self.tmp) / "across_sess.txt"
+        call_count = 0
+
+        def write_call(a):
+            nonlocal call_count
+            call_count += 1
+            f.write_text(a["content"], encoding="utf-8")
+            return {"bytes": len(a["content"])}
+
+        args = {"path": str(f), "content": "session_data"}
+
+        # Session 1
+        res1 = mw.tool_execution_middleware(tool_name="write_file", args=args, next_call=write_call, session_id="session_1")
+        self.assertEqual(call_count, 1)
+
+        # Session 2 with exact same tool and args MUST NOT be deduplicated across sessions!
+        res2 = mw.tool_execution_middleware(tool_name="write_file", args=args, next_call=write_call, session_id="session_2")
+        self.assertEqual(call_count, 2, "Second write in different session was inappropriately swallowed!")
+
+    def test_explicit_idempotency_key_deduplication(self):
+        """Item 1: Explicit idempotency_key triggers deduplication within session."""
+        app = get_app()
+        app.bind(FakeCtx())
+        app.set_guard(True)
+
+        # 1. args['idempotency_key']
+        call_count = 0
+        def charge_tool(a):
+            nonlocal call_count
+            call_count += 1
+            return {"tx_id": "tx_999", "status": "charged"}
+
+        args1 = {"amount": 500, "idempotency_key": "charge_order_42"}
+        r1 = mw.tool_execution_middleware(tool_name="stripe.charge", args=args1, next_call=charge_tool, session_id="sess_charge")
+        r2 = mw.tool_execution_middleware(tool_name="stripe.charge", args=args1, next_call=charge_tool, session_id="sess_charge")
+        self.assertEqual(call_count, 1)
+        self.assertEqual(r2["tx_id"], "tx_999")
+
+        # 2. args['metadata']['idempotency_key']
+        call_count = 0
+        args2 = {"amount": 500, "metadata": {"idempotency_key": "meta_order_43"}}
+        r3 = mw.tool_execution_middleware(tool_name="stripe.charge", args=args2, next_call=charge_tool, session_id="sess_charge")
+        r4 = mw.tool_execution_middleware(tool_name="stripe.charge", args=args2, next_call=charge_tool, session_id="sess_charge")
+        self.assertEqual(call_count, 1)
+
+        # 3. kwargs['idempotency_key']
+        call_count = 0
+        args3 = {"amount": 500}
+        r5 = mw.tool_execution_middleware(tool_name="stripe.charge", args=args3, next_call=charge_tool, session_id="sess_charge", idempotency_key="kw_order_44")
+        r6 = mw.tool_execution_middleware(tool_name="stripe.charge", args=args3, next_call=charge_tool, session_id="sess_charge", idempotency_key="kw_order_44")
+        self.assertEqual(call_count, 1)
+
+    def test_db_file_permissions(self):
+        """Item 2: DB file permissions set to 0600 on creation."""
+        db_file = Path(self.tmp) / "perm_test.db"
+        j = Journal(self.tmp, db_path=str(db_file))
+        j.record_intent("att_perm", "op_perm", "write_file", {"path": "a.txt"})
+        self.assertTrue(db_file.is_file())
+        if os.name != "nt":
+            mode = oct(os.stat(db_file).st_mode & 0o777)
+            self.assertEqual(mode, "0o600")
+        j.close()
+
+    def test_journal_retention_and_prune(self):
+        """Item 2: Journal prune method and auto-retention."""
+        j = Journal(self.tmp, db_path=":memory:")
+        # Record 15 past completed operations
+        for i in range(15):
+            j.record_intent(f"att_{i}", f"op_{i}", "write_file", {"idx": i})
+            j.record_outcome(f"att_{i}", f"op_{i}", "ok", result={"ok": True})
+        # Record 1 in-flight operation
+        j.record_intent("att_inflight", "op_inflight", "write_file", {"idx": 999})
+
+        # Prune to max_rows=5
+        deleted = j.prune(max_age_days=7, max_rows=5)
+        self.assertEqual(deleted, 11)  # 16 total - 5 kept = 11 deleted
+
+        # In-flight operation must NEVER be pruned
+        self.assertIsNotNone(j.get("att_inflight"))
+        # 4 completed + 1 in-flight = 5 rows remaining
+        s = j.stats()
+        self.assertEqual(s["in_flight"], 1)
+        self.assertEqual(s["committed"], 4)
+        self.assertEqual(s["total"], 5)
+        j.close()
+
+    def test_phoenix_prune_command(self):
+        """Item 2: /phoenix prune slash command."""
+        app = get_app()
+        app.bind(FakeCtx())
+        j = app._journal()
+        for i in range(10):
+            j.record_intent(f"att_p_{i}", f"op_p_{i}", "write_file", {"idx": i})
+            j.record_outcome(f"att_p_{i}", f"op_p_{i}", "ok", result={"ok": True})
+
+        res = app.status("prune 7 3")
+        self.assertIn("Phoenix ledger pruned: removed 7 expired records", res)
+        self.assertIn("retention: 7 days, 3 max rows", res)
+
+    def test_dashboard_api_real_windtunnel_execution(self):
+        """Item 4: Real wind tunnel status queried and returned by dashboard plugin API."""
+        try:
+            from phoenix.dashboard.plugin_api import get_status
+        except ImportError:
+            from dashboard.plugin_api import get_status
+
+        data = get_status()
+        self.assertEqual(data["status"], "ok")
+        self.assertIn("windtunnel_verdict", data)
+        self.assertIn("PASS", data["windtunnel_verdict"])
+        self.assertIn("/6", data["windtunnel_verdict"])
+        self.assertIn("windtunnel_report", data)
+        self.assertTrue(data["windtunnel_report"]["passed"])
+        self.assertEqual(len(data["windtunnel_report"]["checks"]), 6)
 
 
 if __name__ == "__main__":

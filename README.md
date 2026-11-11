@@ -133,7 +133,8 @@ Phoenix is now live. Every tool call is journaled and protected automatically.
 /phoenix explain <op>    # full forensics: tool, args, pre/post fingerprints, status
 /recover                 # safely finish every interrupted call (no command collision)
 /recover <op_id>         # ...or just the specific one you care about
-/phoenix guard on|off    # toggle live in-session idempotency deduplication
+/phoenix guard on|off    # toggle live in-session idempotency deduplication (opt-in)
+/phoenix prune [d] [r]   # prune ledger entries (default: 7 days, 10,000 rows)
 /phoenix windtunnel      # run the fault-injection wind tunnel & ddmin suite
 /phoenix report [path]   # generate standalone dark-mode HTML forensic report
 ```
@@ -228,6 +229,7 @@ python demo.py --html phoenix-report.html
 ### Rule 13 (Disclosure & Sandbox Integrity)
 - **Network:** Zero external network calls. No telemetry, no phone-home, no LLM calls during recovery or trace replay.
 - **Data Stored:** 100% local SQLite WAL ledger stored strictly inside `plugin_data_dir("phoenix")`. Stores tool names, canonical JSON arguments, SHA-256 target fingerprints, and execution outcomes. Nothing leaves the host machine.
+- **Ledger at rest:** Phoenix stores tool names, canonical arguments, and results in a local SQLite WAL database (`phoenix.db`) with restricted 0600 permissions. Automatic retention limits entries to the last 10,000 operations / 7 days.
 - **Filesystem Boundaries:** Reads and writes only inside its own plugin data directory and explicit tool target paths. No monkey-patching of Hermes core, no subprocess shells, and no self-updating code. Generated HTML reports contain zero `<script>` tags for strict security scanner compliance.
 - **Dependencies:** Python standard library only (Python 3.11+). Zero external pip dependencies.
 

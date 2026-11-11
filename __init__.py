@@ -15,9 +15,6 @@ from __future__ import annotations
 
 from pathlib import Path as _Path
 import shutil as _shutil
-import sys as _sys
-
-_sys.dont_write_bytecode = True
 
 
 def register(ctx):
@@ -42,8 +39,8 @@ def register(ctx):
     ctx.register_command(
         "phoenix",
         commands.phoenix_cmd,
-        description="Phoenix ledger, crash recovery & wind tunnel: /phoenix [status|recover|windtunnel|guard|report|explain <op>|clear]",
-        args_hint="[status|recover|windtunnel|guard|report|explain <op>|clear]",
+        description="Phoenix ledger, crash recovery & wind tunnel: /phoenix [status|recover|windtunnel|guard|prune|report|explain <op>|clear]",
+        args_hint="[status|recover|windtunnel|guard|prune|report|explain <op>|clear]",
     )
     ctx.register_command(
         "recover",
