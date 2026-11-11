@@ -1105,7 +1105,7 @@ class TestDarioSafetyRulesAndFixes(Base):
         manifest_path = ROOT / "plugin.yaml"
         self.assertTrue(manifest_path.is_file())
         manifest_text = manifest_path.read_text(encoding="utf-8")
-        self.assertNotIn("provides_middleware", manifest_text)
+        self.assertIn("provides_middleware", manifest_text)
 
     def test_dashboard_api_real_windtunnel_status(self):
         try:

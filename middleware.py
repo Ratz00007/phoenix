@@ -108,7 +108,7 @@ def make_middleware(
         if getattr(app, "guard_enabled", False) and not _is_read_only(tool, args):
             if explicit_key is not None:
                 can_deduplicate = True
-                require_committed_state = False
+                require_committed_state = is_declared_mutating
             elif is_declared_mutating and bool(session_id):
                 can_deduplicate = True
                 require_committed_state = True
