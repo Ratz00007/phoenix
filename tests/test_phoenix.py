@@ -1074,6 +1074,66 @@ class TestDarioSafetyRulesAndFixes(Base):
         self.assertIn("PASS", status["windtunnel_verdict"])
         self.assertIn("/6", status["windtunnel_verdict"])
 
+    def test_patch_and_edit_file_fully_committed(self):
+        f = Path(self.tmp) / "patch_target.py"
+        f.write_text("line1 = 1\nline2 = 2\n", encoding="utf-8")
+
+        diff = "--- a/patch_target.py\n+++ b/patch_target.py\n@@ -2 +2,2 @@\n line2 = 2\n+line3 = 3\n"
+        args_patch = {"path": str(f), "patch": diff}
+
+        # Target file doesn't have line3 yet -> False
+        self.assertFalse(is_target_fully_committed("patch", args_patch))
+
+        # Now apply the patch to disk
+        f.write_text("line1 = 1\nline2 = 2\nline3 = 3\n", encoding="utf-8")
+        self.assertTrue(is_target_fully_committed("patch", args_patch))
+        self.assertTrue(is_target_fully_committed("apply_patch", {"file_path": str(f), "diff": diff}))
+
+        # Test edit_file with Replacement
+        args_edit = {"path": str(f), "Replacement": "line3 = 3"}
+        self.assertTrue(is_target_fully_committed("edit_file", args_edit))
+
+        args_edit_missing = {"path": str(f), "Replacement": "nonexistent_line = 999"}
+        self.assertFalse(is_target_fully_committed("edit_file", args_edit_missing))
+
+        # Test missing target file -> False
+        self.assertFalse(is_target_fully_committed("patch", {"path": str(Path(self.tmp) / "missing.py"), "patch": diff}))
+
+    def test_flight_recorder_timeline_graph(self):
+        ctx = FakeCtx()
+        get_app().bind(ctx)
+        j = get_app().journal
+
+        # Committed
+        j.record_intent("att_c1", "op_c1", "write_file", {"path": "src/auth.py", "content": "secret = 1"})
+        j.record_outcome("att_c1", "op_c1", "ok", result={"ok": True})
+
+        # Landed
+        j.record_intent("att_l1", "op_l1", "write_file", {"path": "dist/bundle.js", "content": "var x = 1;"})
+        j.mark_resumed("att_l1", result={"landed": True}, status="recovered_landed")
+
+        # In-Flight
+        j.record_intent("att_inf1", "op_inf1", "terminal", {"command": "pytest"})
+
+        st = get_app().status_text()
+        self.assertIn("--- Phoenix Flight Recorder Timeline ---", st)
+        self.assertIn("[COMMITTED] write_file('src/auth.py')", st)
+        self.assertIn("[LANDED]    write_file('dist/bundle.js')", st)
+        self.assertIn("[IN-FLIGHT] terminal('pytest')", st)
+
+    def test_judge_eval_script(self):
+        try:
+            from phoenix import judge_eval
+        except ImportError:
+            import judge_eval
+        hc_ok, _ = judge_eval.run_hermes_checks()
+        self.assertTrue(hc_ok)
+        wt_ok, wt_data = judge_eval.run_windtunnel_audit()
+        self.assertTrue(wt_ok)
+        self.assertEqual(wt_data["ddmin_steps"], 1)
+        ret = judge_eval.main(silent=True, skip_unit_tests=True)
+        self.assertEqual(ret, 0)
+
 
 
 if __name__ == "__main__":

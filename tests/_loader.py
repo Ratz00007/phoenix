@@ -40,7 +40,8 @@ def load_plugin(root: Path):
     spec.loader.exec_module(module)
     # Eagerly import the submodules so callers can use `module.core`, etc.
     for sub in ("core", "journal", "keys", "middleware", "commands", "tools", "windtunnel"):
-        importlib.import_module(f"{name}.{sub}")
+        sub_mod = importlib.import_module(f"{name}.{sub}")
+        setattr(module, sub, sub_mod)
 
     # App.close() must close SQLite connections to release Windows file locks
     # while preserving the journal instance so demo.py can read app.journal.db_path.

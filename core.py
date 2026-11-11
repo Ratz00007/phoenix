@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -122,7 +123,8 @@ class App:
         rest = parts[1].strip() if len(parts) > 1 else ""
 
         if not subcmd or subcmd == "status":
-            return self.status_text()
+            verbose = "verbose" in rest.lower() or "-v" in rest.lower()
+            return self.status_text(verbose=verbose)
         if subcmd == "explain":
             return self.explain(rest)
         if subcmd == "clear":
@@ -145,7 +147,7 @@ class App:
             return f"Phoenix idempotency guard: {'ON' if self.guard_enabled else 'OFF'}"
         return self.status_text()
 
-    def status_text(self) -> str:
+    def status_text(self, session_id: str | None = None, verbose: bool = False) -> str:
         j = self._journal()
         s = j.stats()
         lines = [
@@ -156,13 +158,98 @@ class App:
         inflight = j.in_flight()
         if inflight:
             lines.append("interrupted (in-flight) operations:")
-            for attempt_id, op_id, tool, args_json, session_id, turn_id, ts in inflight:
+            for attempt_id, op_id, tool, args_json, sid, turn_id, ts in inflight:
                 args_short = args_json if len(args_json) <= 96 else args_json[:93] + "..."
                 lines.append(f"  - {tool}  {op_id}  {args_short}")
             lines.append("run /recover (or /phoenix recover) to finish them exactly once.")
         else:
             lines.append("nothing in flight — every recorded operation has a known outcome.")
             lines.append("Run '/phoenix windtunnel' to launch the 5-fault stress test.")
+
+        # Flight Recorder Timeline
+        recent_ops = j.recent(limit=25 if verbose else 10)
+        if session_id:
+            recent_ops = [op for op in recent_ops if op.get("session_id") == session_id]
+
+        if recent_ops or inflight:
+            lines.append("")
+            lines.append("--- Phoenix Flight Recorder Timeline ---")
+            seen_ops = set()
+            for op in recent_ops:
+                op_id = op.get("op_id")
+                seen_ops.add(op_id)
+                status = op.get("status")
+                tool = op.get("tool", "unknown")
+                args = op.get("args") or {}
+
+                arg_repr = ""
+                if isinstance(args, dict):
+                    path = args.get("path") or args.get("file_path") or args.get("target")
+                    cmd = args.get("command")
+                    url = args.get("url")
+                    if path:
+                        arg_repr = repr(str(path))
+                    elif cmd:
+                        c = str(cmd).strip().replace("\n", " ")
+                        arg_repr = repr(c[:28] + "..." if len(c) > 28 else c)
+                    elif url:
+                        u = str(url).strip()
+                        arg_repr = repr(u[:28] + "..." if len(u) > 28 else u)
+                    elif args:
+                        first_k = next(iter(args))
+                        v = str(args[first_k]).replace("\n", " ")
+                        arg_repr = repr(f"{first_k}={v[:18]}...") if len(v) > 18 else repr(f"{first_k}={v}")
+                elif args:
+                    a_str = str(args).strip().replace("\n", " ")
+                    arg_repr = repr(a_str[:25] + "..." if len(a_str) > 25 else a_str)
+
+                call_str = f"{tool}({arg_repr})"
+
+                if status == "recovered_landed":
+                    badge = "[LANDED]   "
+                    detail = "pre/post verified"
+                elif status in ("ok", "resumed"):
+                    badge = "[COMMITTED]"
+                    sha = None
+                    if isinstance(op.get("result"), dict) and "sha256" in op["result"]:
+                        sha = op["result"]["sha256"]
+                    elif isinstance(args, dict) and ("content" in args or "patch" in args or "diff" in args):
+                        c = str(args.get("content") or args.get("patch") or args.get("diff") or "")
+                        sha = hashlib.sha256(c.encode("utf-8")).hexdigest()
+                    if sha:
+                        detail = f"sha256:{sha[:8]}..."
+                    else:
+                        detail = "ok"
+                elif status in ("intent", "in_flight"):
+                    badge = "[IN-FLIGHT]"
+                    detail = "pending replay"
+                elif status == "error":
+                    badge = "[ERROR]    "
+                    err = str(op.get("error") or "failed")
+                    detail = f"err: {err[:24]}"
+                elif status == "deduped":
+                    badge = "[DEDUPED]  "
+                    detail = "idempotent replay skipped"
+                else:
+                    badge = f"[{str(status).upper()[:8]:<8}] "
+                    detail = str(status)
+
+                lines.append(f"{badge} {call_str} -> {detail}")
+
+            for inf in inflight:
+                if inf[1] not in seen_ops:
+                    tool = inf[2]
+                    try:
+                        args = json.loads(inf[3]) if inf[3] else {}
+                    except Exception:
+                        args = {}
+                    arg_repr = ""
+                    if isinstance(args, dict):
+                        p = args.get("path") or args.get("file_path") or args.get("target") or args.get("command") or ""
+                        arg_repr = repr(str(p)[:28]) if p else ""
+                    call_str = f"{tool}({arg_repr})"
+                    lines.append(f"[IN-FLIGHT] {call_str} -> pending replay")
+
         return "\n".join(lines)
 
     def explain(self, target: str) -> str:

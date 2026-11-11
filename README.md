@@ -4,9 +4,52 @@
 > Zero duplicate writes. Zero lost operations. Zero LLM calls during recovery.
 
 [![Hermes Validation](https://img.shields.io/badge/hermes%20validate-14%2F14%20passed-brightgreen.svg)]()
-[![Tests](https://img.shields.io/badge/tests-53%2B%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-67%2F67%20passed-brightgreen.svg)]()
 [![Dependencies](https://img.shields.io/badge/dependencies-0%20(stdlib%20only)-blue.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+```bash
+# Instant 1-second verification for judges (0 deps, 0 API keys):
+python judge_eval.py
+```
+
+---
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                           PHOENIX BLACK BOX FLIGHT RECORDER TIMELINE                            │
+└─────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+ NORMAL RUNTIME                       TOOL EXECUTION                          CRASH WINDOW
+ ──────────────                       ──────────────                          ────────────
+  Agent Turn ───▶ [tool_call] ───▶ [1. Journal Intent] ───▶ [2. Dispatch Tool] ───▶ [SIGKILL / OOM]
+                                            │                         │                │
+                                     - Compute op_id           - Write to disk /       │
+                                     - SHA-256 pre_fp            API commit            │
+                                     - Commit to WAL                                   ▼
+                                                                                PROCESS TERMINATES
+                                                                                (Mid-Turn Amnesia)
+ ─────────────────────────────────────────────────────────────────────────────────────────────────
+ REBOOT & RECOVERY                    STATE FINGERPRINTING                    FORWARD RECONCILIATION
+ ─────────────────                    ────────────────────                    ──────────────────────
+  Hermes Boots ──▶ [Turn-1 Crash] ───▶ [Inspect SQLite WAL] ───▶ [Evaluate Target Fingerprint]
+                   System Alert                │                                       │
+                                         Unfinished op                         has_target_changed?
+                                         marked 'intent'                               │
+                                                                       ┌───────────────┴───────────────┐
+                                                                       ▼                               ▼
+                                                                   [NO CHANGE]                   [ALREADY MUTATED]
+                                                                Pre-Commit Crash                 Post-Commit Crash
+                                                                       │                               │
+                                                                /recover replays             /recover auto-resolves
+                                                                tool call once               as 'recovered_landed'
+                                                                (status='resumed')           (ZERO duplicate writes!)
+                                                                       │                               │
+                                                                       └───────────────┬───────────────┘
+                                                                                       ▼
+                                                                           Agent Proceeds Safely
+                                                                           (0 LLM Recovery Calls)
+```
 
 ---
 

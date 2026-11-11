@@ -265,7 +265,62 @@ def is_target_fully_committed(
         except OSError:
             return False
 
-    if tool_name == "patch":
+    if tool_name in ("patch", "apply_patch", "edit_file"):
+        cand = (
+            args.get("path")
+            or args.get("file_path")
+            or (pre_fp.get("path") if isinstance(pre_fp, dict) else None)
+        )
+        if not cand:
+            extracted = _extract_target_paths(tool_name, args)
+            cand = extracted[0] if extracted else None
+        if not cand:
+            return False
+
+        base_dir = (
+            args.get("workdir")
+            or os.environ.get("PHOENIX_WORKDIR")
+            or os.getcwd()
+        )
+        p_str = str(cand)
+        if os.path.isabs(p_str):
+            resolved = os.path.abspath(p_str)
+        else:
+            resolved = os.path.abspath(os.path.join(base_dir, p_str))
+
+        p = Path(resolved)
+        try:
+            if not p.is_file():
+                return False
+            file_text = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return False
+
+        diff_str = (
+            args.get("patch")
+            or args.get("diff")
+            or args.get("content")
+            or ""
+        )
+        if not isinstance(diff_str, str) or not diff_str.strip():
+            repl = args.get("Replacement") or args.get("replacement") or args.get("new_str") or args.get("new_string")
+            if isinstance(repl, str) and repl.strip():
+                return repl.strip() in file_text
+            return False
+
+        added_lines = [
+            line[1:].strip()
+            for line in diff_str.splitlines()
+            if line.startswith("+") and not line.startswith("+++")
+        ]
+        non_empty_added = [l for l in added_lines if l]
+        if non_empty_added:
+            return all(l in file_text for l in non_empty_added)
+
+        repl = args.get("Replacement") or args.get("replacement") or args.get("new_str") or args.get("new_string")
+        if isinstance(repl, str) and repl.strip():
+            return repl.strip() in file_text
+
         return False
 
     return False

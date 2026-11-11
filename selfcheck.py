@@ -110,11 +110,13 @@ def check_register() -> tuple[bool, str]:
     finally:
         try:
             if phx is not None:
-                app = phx.core.get_app()
-                if hasattr(app, "close"):
-                    app.close()
-                elif getattr(app, "journal", None) is not None:
-                    app.journal.close()
+                core_mod = getattr(phx, "core", None) or sys.modules.get("hermes_plugins.phoenix.core")
+                if core_mod is not None:
+                    app = core_mod.get_app()
+                    if hasattr(app, "close"):
+                        app.close()
+                    elif getattr(app, "journal", None) is not None:
+                        app.journal.close()
         except Exception:
             pass
         shutil.rmtree(ROOT / ".selfcheck-data", ignore_errors=True)
