@@ -3,10 +3,18 @@
 > ### **Kill your agent mid-write. It recovers having executed exactly once.**
 > Zero duplicate writes. Zero lost operations. Zero LLM calls during recovery.
 
-[![Hermes Validation](https://img.shields.io/badge/hermes%20validate-14%2F14%20passed-brightgreen.svg)]()
-[![Tests](https://img.shields.io/badge/tests-67%2F67%20passed-brightgreen.svg)]()
-[![Dependencies](https://img.shields.io/badge/dependencies-0%20(stdlib%20only)-blue.svg)]()
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+<p align="center">
+  <img src="docs/thumbnail.png" alt="Phoenix v0.3.1 — The Crash-Safe Flight Recorder for Hermes Agents" width="100%">
+</p>
+
+<p align="center">
+  <a href="https://github.com/NousResearch/hermes-agent/pull/152278"><img src="https://img.shields.io/badge/Catalog%20PR-%23152278-orange.svg" alt="PR #152278"></a>
+  <a href="https://x.com/GreyPolitiynxa"><img src="https://img.shields.io/badge/Demo%20Film-Watch%20on%20X-black.svg" alt="Demo Film on X"></a>
+  <img src="https://img.shields.io/badge/hermes%20validate-14%2F14%20passed-brightgreen.svg" alt="Hermes Validate">
+  <img src="https://img.shields.io/badge/tests-80%2F80%20passed-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/dependencies-0%20(stdlib%20only)-blue.svg" alt="Dependencies">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License"></a>
+</p>
 
 ```bash
 # Instant 1-second verification for judges (0 deps, 0 API keys):
