@@ -1,7 +1,7 @@
 # Add plugin: `phoenix` v2.0.0 — The Exactly-Once Trust Layer for Autonomous Agents
 
 **Repository:** https://github.com/Ratz00007/phoenix  
-**Pinned Commit:** `fcf73190c6614c4b236e1001156463f75cbb7e24` (https://github.com/Ratz00007/phoenix/commit/fcf73190c6614c4b236e1001156463f75cbb7e24)  
+**Pinned Commit:** `ed34dfa824754983114c560d31162098e2b22c59` (https://github.com/Ratz00007/phoenix/commit/ed34dfa824754983114c560d31162098e2b22c59)  
 **Maintainer:** @Ratz00007  
 **Version:** `2.0.0`  
 **Dependencies:** 0 external dependencies (Python 3.11+ stdlib only)  

@@ -1,7 +1,7 @@
 ﻿name: phoenix
 title: "Phoenix - The Exactly-Once Trust Layer for Autonomous Agents"
 repo: https://github.com/Ratz00007/phoenix
-sha: fcf73190c6614c4b236e1001156463f75cbb7e24
+sha: ed34dfa824754983114c560d31162098e2b22c59
 description: >-
   Visual flight recorder, deterministic SHA-256 state fingerprinting,
   idempotency replay guard, and forward zero-LLM crash recovery with
