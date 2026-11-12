@@ -1,0 +1,7 @@
+{
+  "name": "phoenix-flight-recorder",
+  "version": "2.0.0",
+  "description": "Visual Flight Recorder & Time-Travel Debugger for Hermes autonomous agents.",
+  "entry": "plugin.js",
+  "permissions": ["plugin-storage", "hermes-tools"]
+}

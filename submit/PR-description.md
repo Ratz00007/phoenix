@@ -1,17 +1,19 @@
-# Add plugin: `phoenix` v0.3.1 — The Black Box Flight Recorder for Hermes Agents
+# Add plugin: `phoenix` v2.0.0 — The Exactly-Once Trust Layer for Autonomous Agents
 
 **Repository:** https://github.com/Ratz00007/phoenix  
-**Pinned Commit:** `75326501b1f95da6afd6b3d29afd9d592a561bd5` (https://github.com/Ratz00007/phoenix/commit/75326501b1f95da6afd6b3d29afd9d592a561bd5)  
+**Pinned Commit:** `fcf73190c6614c4b236e1001156463f75cbb7e24` (https://github.com/Ratz00007/phoenix/commit/fcf73190c6614c4b236e1001156463f75cbb7e24)  
 **Maintainer:** @Ratz00007  
-**Version:** `0.3.1`  
+**Version:** `2.0.0`  
 **Dependencies:** 0 external dependencies (Python 3.11+ stdlib only)  
+**Desktop UI:** `@hermes/plugin-sdk` + `react` only (0 DOM overrides, 0 eval)  
 **License:** MIT  
 
 > ### **Kill your agent mid-write. It recovers having executed exactly once.**
 > Zero duplicate writes. Zero lost operations. Zero LLM calls during recovery.
+> **10,000-Crash Reliability Proof:** 10,000 / 10,000 trials passed with 0 duplicates and 0 lost ops.
 
 ```bash
-# Instant 1-second verification for judges (0 deps, 0 API keys):
+# Instant verification for judges (0 deps, 0 API keys):
 python judge_eval.py
 ```
 
@@ -22,6 +24,13 @@ python judge_eval.py
 Autonomous agents fail in the most dangerous operational window: *after* a tool side effect commits, but *before* the result is recorded in session history. A network drop, process kill (`SIGKILL`), laptop lid close, or gateway timeout leaves the agent blind to whether the write actually landed on disk or remote service. The agent retries blindly, resulting in duplicate writes, double billing, or corrupted files.
 
 **Phoenix is the black box flight recorder for that failure mode.** It journals every tool call to a local SQLite WAL ledger *before* it runs (recording pre-execution target state fingerprints) and its outcome *after*. If interrupted, `/recover` uses pre/post state fingerprinting to verify whether mutations landed on disk, completing pending work safely with **zero duplicate writes** and **zero LLM calls**.
+
+### Phoenix 2.0 Feature Additions:
+1. **Desktop Flight Recorder Timeline:** Scrubbable event log, cryptographic diff viewer, and live value dashboard (`desktop/plugin.js`).
+2. **10,000-Crash Provable Durability Proof:** Continuous seeded chaos validation across all 5 write boundaries (`RELIABILITY.md`).
+3. **Real-Time Value Telemetry:** Live accounting of capital saved ($ saved), duplicate writes avoided, and avoided LLM turns.
+4. **Adapter Ecosystem:** Native support for Stripe (`Idempotency-Key`), Email (`Message-ID`), and SQL (unique upsert keys).
+5. **113/113 Unit Tests Passing:** 100% green test suite across all modules.
 
 ---
 

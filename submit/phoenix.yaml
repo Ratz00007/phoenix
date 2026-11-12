@@ -1,22 +1,25 @@
 ﻿name: phoenix
-title: "Phoenix - The Black Box Flight Recorder for Hermes Agents"
+title: "Phoenix - The Exactly-Once Trust Layer for Autonomous Agents"
 repo: https://github.com/Ratz00007/phoenix
-sha: 2db4a5d7c775e161f87e0c431daaeefc42a93512
+sha: fcf73190c6614c4b236e1001156463f75cbb7e24
 description: >-
-  Transactional SQLite WAL flight recorder, pre/post SHA-256 state fingerprinting,
-  live idempotency guard, and deterministic fault-injection wind tunnel with
-  Zeller ddmin for Hermes agents. Guarantees exactly-once tool execution across crashes
-  with zero duplicate writes and zero LLM calls in recovery.
+  Visual flight recorder, deterministic SHA-256 state fingerprinting,
+  idempotency replay guard, and forward zero-LLM crash recovery with
+  10,000-crash provable durability. Guarantees exactly-once tool execution
+  across SIGKILL crashes with zero duplicate writes and zero LLM calls.
 maintainer: Ratz00007
 tier: community
 category: tools
 requires_hermes: ">=0.21.6"
-version: "0.3.0"
+version: "2.0.0"
 capabilities:
   provides_tools:
     - phoenix_ledger
+    - phoenix_stats
+    - phoenix_recover
     - phoenix_windtunnel
-  provides_hooks: []
+  provides_hooks:
+    - session_start
   provides_middleware:
     - tool_execution
   requires_env: []
