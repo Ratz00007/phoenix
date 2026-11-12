@@ -410,7 +410,7 @@ class Journal:
 
     def stats(self) -> dict:
         c = self._connect()
-        total = c.execute("SELECT COUNT(*) FROM ops WHERE attempt_id NOT LIKE '%_recov'').fetchone()[0]
+        total = c.execute("SELECT COUNT(*) FROM ops WHERE attempt_id NOT LIKE '%_recov'").fetchone()[0]
         committed = c.execute(
             "SELECT COUNT(*) FROM ops WHERE status IN ('ok','resumed','recovered_landed') AND attempt_id NOT LIKE '%_recov'"
         ).fetchone()[0]
@@ -428,4 +428,3 @@ class Journal:
             "deduped": deduped,
             "recovered_landed": recovered_landed,
         }
-    
