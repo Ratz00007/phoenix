@@ -1,115 +1,54 @@
-# Phoenix 2.0 System Architecture
+# Phoenix v0.3.1 Architecture
 
-> **Phoenix — The Exactly-Once Trust Layer for Autonomous Agents**  
-> Visual Flight Recorder + Zero-LLM Forward Recovery + 10,000-Crash Provable Durability
-
----
-
-## 1. Architectural Philosophy: The Blind Window
-
-Autonomous agents interact with real-world side effects: charging credit cards, writing source code, dispatching emails, and altering production databases.
-
-Between the moment an agent dispatches a mutating tool and the moment the host receives the response, there exists a critical failure window: **The Blind Window**.
-
-```
-[Agent Host]                           [Target System (Stripe / Disk)]
-     |                                              |
-     |---- (1) Dispatch write_file / charge ------->|
-     |                                              |
-     |                                    [Mutation Commits]
-     |                                              |
-   [💥 SIGKILL / Power Loss / Host OOM]            |
-     |                                              |
-     x<--- (2) Dropped Network Response ------------+
-```
-
-### The Failure Modes of Existing Agent Systems:
-1. **Blind Retry Agents:** When restarted, the LLM observes no response and retries the prompt. The customer is charged twice ($240 -> $480) or the file is overwritten with corrupted data.
-2. **Rollback Agents (`/rollback`):** Blindly reverts local git commits or deletes local temp files without knowing that the remote payment or server write already succeeded. State diverges permanently.
-3. **Phoenix Architecture:** Intercepts every tool call. Intent and cryptographic state hashes are journaled to SQLite WAL and `fsync`ed *before* execution. Upon restart, Phoenix reconciles in-flight operations non-destructively with **0 duplicate executions** and **0 LLM tokens**.
+> **Core Invariant:** *At-most-once execution + at-least-once recording + zero duplicate writes.*
 
 ---
 
-## 2. Core Subsystems
+## 1. Module Layout
 
 ```
-                                +-------------------+
-                                |   Hermes Agent    |
-                                +-------------------+
-                                          |
-                                          v
-+-----------------------------------------------------------------------------------+
-|                            PHOENIX RUNTIME LAYER                                  |
-|                                                                                   |
-|  +------------------------+      +------------------------+      +-------------+  |
-|  | Interception Middleware| ---> | Deterministic Hash &   | ---> | ExactlyOnce |  |
-|  | (tool_execution)       |      | Fingerprint Engine     |      | Controller  |  |
-|  +------------------------+      +------------------------+      +-------------+  |
-|              |                                                          |         |
-|              v                                                          v         |
-|  +-----------------------------------------------------------------------------+  |
-|  | SQLite WAL Durability Ledger (synchronous=FULL, mode 0600, single-writer)  |  |
-|  | - Table calls: UUID, args_hash, side_effect, idempotency_key, pre/post_fp  |  |
-|  | - Table events: atomic journal of begin, pre_state, post_state, commit      |  |
-|  | - Table recoveries: metrics of ops recovered, dupes prevented, $ saved      |  |
-|  +-----------------------------------------------------------------------------+  |
-|              ^                                                                    |
-|              |                                                                    |
-|  +------------------------+      +------------------------+      +-------------+  |
-|  | Zero-LLM Forward       |      | Value Telemetry Engine |      | Desktop UI  |  |
-|  | Recovery Engine        |      | ($ Saved, Dupes)       |      | Timeline    |  |
-|  +------------------------+      +------------------------+      +-------------+  |
-+-----------------------------------------------------------------------------------+
+phoenix/
+├── __init__.py          # Hermes register(ctx): middleware, tools, commands, system prompt
+├── plugin.yaml          # Standalone manifest (v0.3.1, 0 deps)
+├── core.py              # Phoenix App lifecycle, Turn-1 crash alert, forward recovery
+├── journal.py           # SQLite WAL ledger (0600, O_EXCL, WAL/SHM perms, retention, redaction)
+├── keys.py              # Canonical op_id SHA-256 & target state fingerprinting
+├── middleware.py        # tool_execution interceptor + opt-in same-session idempotency guard
+├── commands.py          # Owner-only /phoenix & /recover slash commands + CLI handler
+├── tools.py             # Read-only phoenix_ledger & real phoenix_windtunnel model tools
+├── report.py            # Zero-script standalone dark-mode HTML forensic report
+├── windtunnel.py        # Deterministic fault-injection wind tunnel + Zeller ddmin minimizer
+├── selfcheck.py         # Hermes plugin doctor self-check script
+├── demo.py              # 4-act end-to-end crash-and-recover demonstration
+├── judge_eval.py        # Official judge scorecard (80 unit tests, doctor, windtunnel)
+├── dashboard/           # Hermes Web Dashboard extension (manifest.json, plugin_api.py, dist/index.js)
+└── tests/               # 80 unit tests (unittest discover -s tests)
 ```
 
 ---
 
-## 3. Data Contracts & Durability Protocol
+## 2. Transactional SQLite WAL Protocol (`journal.py`)
 
-### 3.1 SQLite WAL Ledger Schema
-- **`journal_mode=WAL`**: Concurrency without reader-writer locking contention.
-- **`synchronous=FULL`**: Guarantees disk sync before write acknowledgement.
-- **Permissions `0600`**: Confined strictly to plugin storage (`plugin_data_dir("phoenix")`).
-- **Single-Writer Pattern**: All mutations flow through `Ledger` class methods; readers use lightweight read-only connections.
+Every tool call passes through `middleware.py` before reaching Hermes' underlying tool executor:
 
-### 3.2 Two-Phase Journaling Sequence
-For every tool invocation:
-1. **Phase 1 (`begin`)**:
-   - Classify side effect (`read`, `write`, `external`).
-   - Hash arguments canonically (`args_hash = SHA256(canonical_json(args))`).
-   - Capture pre-state fingerprint (`pre_fingerprint`).
-   - Persist record in `calls` table with status `PENDING`.
-   - Append `begin` and `pre_state` events to `events` table and `fsync`.
-2. **Execution**: Invoke underlying tool.
-3. **Phase 2 (`commit`)**:
-   - Capture post-state fingerprint (`post_fingerprint`).
-   - Append `post_state` event to `events`.
-   - Update call status to `COMMITTED` with duration in milliseconds.
-   - Append `commit` event and `fsync`.
-
-If execution crashes before Phase 2 completes, the record remains `PENDING` in SQLite WAL — serving as an undeniable cryptographic flight recorder marker.
+1. **Intent Logging (`record_intent`)**: Writes a row into `phoenix.db` (`journal_mode=WAL`, `synchronous=NORMAL`, `0600` permissions on DB and `-wal`/`-shm` sidecars) with `status='in_flight'`, canonical `op_id`, redacted `args_json`, and pre-execution SHA-256 target `pre_fp`.
+2. **Tool Execution**: The underlying tool runs normally.
+3. **Outcome Commit (`record_outcome`)**: Updates the row to `status='committed'` (or `status='error'`) with post-execution SHA-256 target `post_fp` and redacted `result_json`.
 
 ---
 
-## 4. Zero-LLM Forward Recovery Engine
+## 3. Forward Zero-LLM Crash Recovery (`core.py` & `keys.py`)
 
-When Phoenix boots after an interruption, `session_start_hook` detects any stranded `PENDING` calls:
-1. **Target State Probing**: Phoenix computes the current post-state fingerprint or queries adapter idempotency endpoints.
-2. **Reconciliation Decision**:
-   - **If the side-effect landed:** Phoenix marks the call `RECOVERED` without re-executing it. `dupes_prevented` is incremented.
-   - **If the side-effect did not land:** Phoenix marks the call `FAILED`, clearing the path for safe retry. `ops_recovered` is incremented.
-3. **Zero Token Cost**: Recovery executes in < 5ms via deterministic Python logic without wasting LLM reasoning loops or tokens.
+If `SIGKILL`, OOM, or power loss kills the process between Step 1 and Step 3:
 
----
-
-## 5. External Adapters
-
-- **Stripe (`phoenix/adapters/stripe.py`)**: Passes deterministic `Idempotency-Key` headers on charges; probes charge status on recovery.
-- **Email (`phoenix/adapters/email.py`)**: Computes deterministic `Message-ID` from content and recipient to prevent duplicate email dispatch.
-- **SQL (`phoenix/adapters/sql.py`)**: Executes atomic upserts keyed on business identifiers and computes cryptographic row fingerprints.
+1. **Turn-1 Detection**: On reboot, `ctx.register_system_prompt_section("phoenix_recovery", ...)` inspects `journal.in_flight()`. If interrupted calls exist, it injects a zero-token alert advising the user to run `/recover`.
+2. **Target State Fingerprinting**: When the owner runs `/recover`, `keys.has_target_changed(pre_fp)` inspects the target on disk (`write_file`, `edit_file`, unified `patch` hunks, shell `>` / `tee` redirects):
+   - **Post-Commit Crash (Target Already Mutated)**: Marked `recovered_landed` with **0 duplicate writes** and **0 tool re-dispatches**.
+   - **Pre-Commit Crash (Target Unchanged)**: Safely re-dispatched once via `ctx.dispatch_tool` and marked `resumed`.
+3. **Zero LLM Tokens**: Recovery executes deterministically from the SQLite WAL ledger—no LLM re-reasoning required.
 
 ---
 
-## 6. Honest Guarantees & Limits (§3.6)
+## 4. ReplayLab Wind Tunnel & Zeller `ddmin` (`windtunnel.py`)
 
-> **Verbatim Guarantee:** Phoenix provides **at-most-once execution + at-least-once recording**, and **exactly-once observable effect** when the adapter can verify post-state or the external system honors an idempotency key. It does not claim exactly-once for arbitrary unverifiable side effects without idempotency support.
+`windtunnel.py` injects deterministic boundary faults (`timeout_after_commit`, `rate_limit_429`, `malformed_payload`) across `HERMES_DEV_TRACE` and applies Zeller's delta debugging (`ddmin_trace`) to isolate the minimal 1-step counterexample in `<50ms` with 0 LLM calls.

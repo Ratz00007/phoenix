@@ -95,7 +95,7 @@ Phoenix operates as a **flight recorder**: on reboot, Turn-1 autonomous crash de
 - **Zero Secrets / Environment Reads:** Phoenix requires no external API keys, tokens, or credentials. No `requires_env`, no `config_schema`.
 
 ### Rule 12 (Approvals Respected)
-- **Explicit Recovery Dispatch Only:** Forward recovery executes tool calls via `ctx.dispatch_tool` strictly when requested by the user (`/recover`) or agent (`phoenix_ledger(action="recover")`). No unprompted background tool executions.
+- **Explicit Recovery Dispatch Only:** Forward recovery executes tool calls via `ctx.dispatch_tool` strictly when requested by the human owner (`/recover` or `/phoenix recover`). No model-callable replay or unprompted background tool executions.
 
 ### Rule 13 (Disclosure & Sandbox Integrity)
 - **Network:** Zero external network calls. No telemetry, no phone-home, no LLM API calls during recovery or trace replay.

@@ -188,7 +188,7 @@
           "div",
           { style: titleStyle },
           e("span", null, "🔥"),
-          e("span", null, "Phoenix WAL & Wind Tunnel Hypervisor v0.3.0")
+          e("span", null, "Phoenix WAL & Wind Tunnel Hypervisor v0.3.1")
         ),
         e(
           "button",
@@ -206,7 +206,7 @@
         makeCard("Deduped Retries", stats.deduped !== undefined ? stats.deduped : 0, "#06b6d4"),
         makeCard("In-Flight Stranded", stats.in_flight !== undefined ? stats.in_flight : 0, stats.in_flight > 0 ? "#f59e0b" : "#9ca3af"),
         makeCard("Idempotency Guard", guardOn ? "ON" : "OFF", guardOn ? "#10b981" : "#ef4444"),
-        makeCard("Wind Tunnel", data.windtunnel_verdict || "6/6 PASS", "#10b981")
+        makeCard("Wind Tunnel", data.windtunnel_verdict || "Not run", data.windtunnel_verdict && data.windtunnel_verdict.indexOf("PASS") !== -1 ? "#10b981" : "#9ca3af")
       ),
       e(
         "div",
@@ -237,7 +237,7 @@
         e(
           "div",
           { style: { color: "#9ca3af", lineHeight: "1.5" } },
-          "Enterprise 11-step trace (CUSTOMER_42_TRACE) evaluated with deterministic system-state oracle. Isolated failing mutation at Step #7 (crm.update_plan) in <2ms with 0 LLM calls."
+          "Run /phoenix windtunnel or invoke phoenix_windtunnel to execute deterministic fault injection and Zeller ddmin trace minimization."
         )
       )
     );

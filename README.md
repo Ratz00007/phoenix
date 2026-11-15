@@ -1,11 +1,11 @@
-# Phoenix 2.0 — The Exactly-Once Trust Layer for Autonomous Agents
+# Phoenix v0.3.1 — The Exactly-Once Trust Layer for Autonomous Agents
 
 > ### **Kill your agent mid-write. It recovers having executed exactly once.**
-> **Black-Box Flight Recorder + Time-Travel Debugger + 10,000-Crash Provable Durability**  
+> **Transactional SQLite WAL Flight Recorder + SHA-256 State Fingerprinting + Zeller `ddmin` Wind Tunnel**  
 > *Zero duplicate writes. Zero lost operations. Zero LLM tokens wasted during recovery.*
 
 <p align="center">
-  <img src="docs/thumbnail.png" alt="Phoenix 2.0 — The Exactly-Once Trust Layer for Hermes Autonomous Agents" width="100%">
+  <img src="docs/thumbnail.png" alt="Phoenix — The Exactly-Once Trust Layer for Hermes Autonomous Agents" width="100%">
 </p>
 
 <p align="center">
@@ -37,7 +37,7 @@ python judge_eval.py
 
 ---
 
-## 1. The Blind Window: Why Agents Double-Charge
+## 1. The Blind Window: Why Agents Corrupt State
 
 Autonomous agents fail in the worst possible window: *after* a mutating tool side-effect lands on disk or external API, but *before* the host receives the response.
 
@@ -48,9 +48,9 @@ Autonomous agents fail in the worst possible window: *after* a mutating tool sid
 
    Agent Host                          External Service / Target Disk
         │                                           │
-        ├─── (1) Dispatch charge $240 / write ─────>│
+        ├─── (1) Dispatch write / charge ──────────>│
         │                                           │
-        │                                 [Mutation Commits ($240)]
+        │                                 [Mutation Commits]
         │                                           │
       [💥 SIGKILL / Power Loss / Host OOM]          │
         │                                           │
@@ -58,136 +58,103 @@ Autonomous agents fail in the worst possible window: *after* a mutating tool sid
 
    WHAT HAPPENS NEXT WITHOUT PHOENIX:
    ──────────────────────────────────
-   • Blind Retry: Agent reboots, sees no confirmation, re-executes charge -> Customer charged $480!
+   • Blind Retry: Agent reboots, sees no confirmation, re-executes write -> Duplicate charge / corrupted file!
    • Naive /rollback: Deletes local file commits while remote API already billed -> State desynced!
 
    WHAT HAPPENS WITH PHOENIX:
    ──────────────────────────
-   • Phoenix SQLite WAL records intent & state fingerprints BEFORE dispatch.
-   • Upon restart, Phoenix reconciles in-flight state via forward recovery.
-   • Result: Customer charged EXACTLY ONCE. 0 duplicate writes. 0 LLM tokens wasted.
+   • Phoenix SQLite WAL records intent & SHA-256 pre-state fingerprint BEFORE dispatch.
+   • Upon restart, Turn-1 system prompt alert detects in-flight ops.
+   • Owner runs /recover: Phoenix verifies disk fingerprint -> marks already-landed ops recovered_landed.
+   • Result: Executed EXACTLY ONCE. 0 duplicate writes. 0 LLM tokens wasted.
 ```
 
 ---
 
-## 2. Phoenix 2.0 Core Architecture
+## 2. Core Architecture
 
-Phoenix provides a zero-dependency trust layer consisting of 4 integrated engines:
+Phoenix provides a zero-dependency trust layer built strictly on Python 3.11+ standard library:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                            PHOENIX RUNTIME ARCHITECTURE                                         │
+│                            PHOENIX v0.3.1 RUNTIME ARCHITECTURE                                  │
 └─────────────────────────────────────────────────────────────────────────────────────────────────┘
 
-  Hermes Agent Invocation
+  Hermes Agent Tool Execution
             │
             ▼
   ┌────────────────────────┐      ┌────────────────────────┐      ┌────────────────────────┐
-  │ tool_execution         │ ───▶ │ Deterministic Hash &   │ ───▶ │ Exactly-Once           │
-  │ Interceptor Middleware │      │ Fingerprint Engine     │      │ Replay Guard (Opt-In)  │
+  │ tool_execution         │ ───▶ │ Deterministic op_id &  │ ───▶ │ Live Idempotency       │
+  │ Middleware (middleware)│      │ SHA-256 Fingerprints   │      │ Guard (Opt-In, OFF def)│
   └────────────────────────┘      └────────────────────────┘      └────────────────────────┘
             │                                                                  │
             ▼                                                                  ▼
   ┌────────────────────────────────────────────────────────────────────────────────────────┐
-  │ SQLite WAL Durability Ledger (synchronous=FULL, mode 0600, single-writer)              │
-  │ • calls: UUID, monotonic seq, tool_name, args_hash, pre/post_fp, status, cost_cents    │
-  │ • events: atomic journal of begin, pre_state, post_state, commit, fsync                │
-  │ • recoveries: audit of ops recovered, dupes prevented, capital saved                   │
+  │ Hardened SQLite WAL Ledger (journal.py)                                                │
+  │ • Confined to plugin_data_dir("phoenix")/phoenix.db (mode 0600, O_EXCL, WAL/SHM 0600)  │
+  │ • Auto-retention: 7 days / 10,000 rows; secret regex redaction before persistence      │
   └────────────────────────────────────────────────────────────────────────────────────────┘
             ▲
             │
   ┌────────────────────────┐      ┌────────────────────────┐      ┌────────────────────────┐
-  │ Zero-LLM Forward       │      │ Real-Time Value        │      │ Desktop Flight         │
-  │ Recovery Engine        │      │ Telemetry ($ Saved)    │      │ Recorder UI Timeline   │
+  │ Owner-Only Forward     │      │ Turn-1 System Prompt   │      │ Zeller ddmin Fault     │
+  │ Recovery (/recover)    │      │ Alert (phoenix_recovery│      │ Wind Tunnel (windtunnel│
   └────────────────────────┘      └────────────────────────┘      └────────────────────────┘
 ```
 
 ---
 
-## 3. Provable Reliability: 10,000 Crashes, 0 Duplicates
-
-We tested Phoenix across **10,000 continuous deterministic crash injection trials** (`SIGKILL` simulation across all 5 write boundaries).
-
-See the full audit in [RELIABILITY.md](RELIABILITY.md).
-
-| Failure Boundary Injected | Trials Tested | Duplicate Writes | Lost Operations | Invariant Held |
-| :--- | :--- | :--- | :--- | :--- |
-| `before_begin` | 2,000 | **0** | **0** | **100.0% PASS** |
-| `during_pre_state` | 2,000 | **0** | **0** | **100.0% PASS** |
-| `during_execution` | 2,000 | **0** | **0** | **100.0% PASS** |
-| `after_execution_before_commit` | 2,000 | **0** | **0** | **100.0% PASS** |
-| `during_commit` | 2,000 | **0** | **0** | **100.0% PASS** |
-| **TOTAL** | **10,000** | **0** | **0** | **100% PROVABLY EXACTLY-ONCE** |
-
-Reproduce locally in one command:
-```bash
-python -m phoenix.chaos --trials 10000 --report RELIABILITY.md
-```
-
----
-
-## 4. Quickstart: 3 Commands
+## 3. Quickstart & Verification
 
 ```bash
 # 1. Install Phoenix plugin into Hermes
 hermes plugins install phoenix
 
-# 2. Run the realistic booking kill-and-recover demo (< 30s)
-python -m phoenix.demo --chaos
+# 2. Run the 4-Act crash-and-recover + Zeller ddmin demo (< 1s)
+python demo.py
 
-# 3. View live value telemetry and metrics
-hermes /phoenix stats
+# 3. Run the complete evaluation scorecard (80 unit tests, doctor checks, wind tunnel)
+python judge_eval.py
+
+# 4. Run official Hermes plugin validator
+hermes plugins validate .
 ```
 
 ---
 
-## 5. Value Telemetry & Metrics
+## 4. Tools, Commands & Surfaces
 
-Phoenix continuously measures the exact financial and operational value it preserves:
+### Native Model Tools (Read-Only / Diagnostic)
+- `phoenix_ledger`: Inspect the execution journal (`action: status | explain | report`). Mutating/recovery actions are strictly rejected here and restricted to human owner slash commands. Report output is strictly sanitized to `plugin_data_dir("phoenix")/reports/<basename>.html`.
+- `phoenix_windtunnel`: Execute the deterministic fault-injection wind tunnel with Zeller `ddmin` trace minimization.
 
-- **Financial Capital Saved:** Tracks duplicate charges avoided (e.g. `$240.00` per prevented duplicate).
-- **Duplicate Writes Prevented:** Monotonically increasing count of suppressed replays.
-- **Operations Recovered:** Number of interrupted calls safely reconciled.
-- **LLM Tokens Avoided:** Computes cognitive tokens saved by using zero-LLM forward recovery.
-
-### Real-Time Inspection Commands:
+### Owner-Typed Slash Commands
 - `/phoenix status`: Active ledger state and in-flight operations.
-- `/phoenix stats`: Real-time dollars saved and operations recovered.
-- `/phoenix report`: Generates an executive Markdown audit report.
-- `/recover`: Reconciles interrupted operations post-SIGKILL with 0 duplicate executions.
-- `/recover --dry-run`: Previews recovery actions without committing mutations.
+- `/phoenix explain <op_id>`: Detailed inspection of a single operation.
+- `/phoenix guard on|off`: Toggle the opt-in same-session idempotency guard.
+- `/phoenix windtunnel`: Run the 6-check fault-injection suite.
+- `/phoenix report [path]`: Export a standalone dark-mode HTML forensic report (zero `<script>` tags).
+- `/phoenix prune`: Prune expired ledger rows manually.
+- `/recover`: Reconciles interrupted operations post-crash using SHA-256 pre/post target fingerprinting with 0 duplicate writes and 0 LLM calls.
 
 ---
 
-## 6. Flight Recorder Desktop UI Extension
+## 5. Security & Disclosure
 
-Phoenix includes a native Hermes Desktop extension (`desktop/plugin.js`) built with `@hermes/plugin-sdk`:
-- **Scrubbable Flight Timeline:** Real-time event log with sequence numbers, durations, and crash markers.
-- **Cryptographic Diff Viewer:** Side-by-side SHA-256 pre-state vs post-state verification.
-- **One-Click Recovery:** Human-in-the-loop recovery button that respects approval boundaries.
-- **Value Dashboard:** Live cards showing capital retained, dupes prevented, and LLM turns saved.
-
----
-
-## 7. Cryptographic Guarantees & Security Invariants
-
-> **Verbatim Guarantee (§3.6):** Phoenix provides **at-most-once execution + at-least-once recording**, and **exactly-once observable effect** when the adapter can verify post-state or the external system honors an idempotency key. It does not claim exactly-once for arbitrary unverifiable side effects.
-
-### Non-Negotiable Security Invariants:
-1. **No Model-Controlled Filesystem Paths:** Ledger lives strictly inside `plugin_data_dir("phoenix")` with permissions `0600`. Directory traversals (`..`) are rejected immediately.
-2. **Opt-In Idempotency:** The replay guard is **OFF by default**; mutating tools opt in explicitly.
-3. **Never Cache Read-Only Results:** Read tools (`SideEffect.READ`) are **strictly prohibited** from cross-session caching.
-4. **Secret Redaction:** All API tokens, Stripe keys, passwords, and JWTs are scrubbed before persistence.
-5. **Zero External Runtime Dependencies:** Pure Python 3.11+ standard library.
+1. **No Model-Controlled Filesystem Paths:** Ledger lives strictly inside `plugin_data_dir("phoenix")` with `0600` file permissions on DB, `-wal`, and `-shm` sidecars (`O_EXCL`). Model-requested reports are confined to `plugin_data_dir("phoenix")/reports/<basename>.html`.
+2. **Owner-Only Recovery:** `/recover`, `/phoenix clear`, and `/phoenix guard` are strictly restricted to human owner slash commands—never model-callable.
+3. **Opt-In Idempotency:** The replay guard is **OFF by default**; when enabled, deduplication is scoped strictly to the same active session and declared mutating tools or explicit `idempotency_key` with disk state verification. Read-only tools are never cached across sessions.
+4. **Secret Redaction:** API tokens, Bearer secrets, and auth credentials are scrubbed by regex before persistence.
+5. **Ledger Disclosure:** Phoenix journals tool call arguments and results (common secret patterns redacted) to a local SQLite ledger under `plugin_data_dir("phoenix")`, retained for 7 days / 10,000 rows. Owner-typed `/recover` re-runs interrupted tool calls through the tool registry.
+6. **Zero External Runtime Dependencies:** Pure Python 3.11+ standard library.
 
 ---
 
-## 8. Complete Documentation Suite
+## 6. Documentation Suite
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) — System architecture, WAL protocol, and zero-LLM engine.
+- [ARCHITECTURE.md](ARCHITECTURE.md) — System architecture, WAL protocol, and zero-LLM recovery.
 - [QUICKSTART.md](QUICKSTART.md) — 60-second getting started guide for developers and judges.
 - [COMPARISON.md](COMPARISON.md) — Architectural comparison vs `/rollback`, blind retry, and Temporal.
-- [RELIABILITY.md](RELIABILITY.md) — Complete 10,000-crash reliability proof data and methodology.
 - [THREAT_MODEL.md](THREAT_MODEL.md) — Threat model, trust boundaries, and maintainer audit checklist.
 
 ---

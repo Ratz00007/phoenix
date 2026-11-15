@@ -2,8 +2,7 @@
   "name": "phoenix",
   "title": "Phoenix WAL & Wind Tunnel",
   "description": "Crash-proof SQLite WAL ledger, pre/post state fingerprinting, and ReplayLab ddmin wind tunnel",
-  "version": "0.3.0",
-  "Entry": "dist/index.js",
+  "version": "0.3.1",
   "entry": "dist/index.js",
   "api_prefix": "/api/plugins/phoenix"
 }

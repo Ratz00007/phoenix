@@ -1,50 +1,45 @@
-# Phoenix Quickstart Guide
+# Phoenix v0.3.1 Quickstart Guide
 
-Get up and running with Phoenix in under 60 seconds on any Hermes installation.
+Get up and running in 60 seconds with **0 external dependencies** and **0 API keys**.
 
 ---
 
-## 1. Quick Installation (3 Commands)
-
-Install Phoenix directly from the official Hermes plugin catalog:
-
+## 1. Run the Complete Evaluation Scorecard
 ```bash
-# 1. Install Phoenix plugin into Hermes
-hermes plugins install phoenix
-
-# 2. Run the deterministic chaos demonstration (< 30 seconds)
-python -m phoenix.demo --chaos
-
-# 3. Inspect real-time value metrics ($ saved and dupes prevented)
-hermes /phoenix stats
+python judge_eval.py
 ```
+Executes:
+- **80/80 Unit Tests** (`python -m unittest discover -s tests`)
+- **5 Hermes Official Doctor Checks** (manifest, dashboard, registration, public imports, clean build)
+- **Developer Wind Tunnel & Zeller `ddmin`** (8-step trace minimized to 1 step in `<50ms`)
 
 ---
 
-## 2. Using Phoenix in Your Hermes Agent Workflow
-
-### Interactive Slash Commands
-- `/phoenix status`: Displays active in-flight calls, dupes prevented, and ledger state.
-- `/phoenix stats`: Shows total financial capital saved and avoided LLM cycles.
-- `/phoenix report`: Generates a Markdown audit report of all intercepted calls.
-- `/recover`: Reconciles interrupted operations post-SIGKILL with 0 duplicate writes.
-- `/recover --dry-run`: Previews recovery actions without committing state changes.
-
-### Native Hermes Tools
-When your agent is running autonomously, Phoenix registers 4 zero-overhead tools:
-- `phoenix_ledger`: Read-only queries for call timelines and event drilldowns.
-- `phoenix_stats`: Value metrics and duplicate prevention counters.
-- `phoenix_recover`: Programmatic forward crash recovery.
-- `phoenix_windtunnel`: Deterministic fault-injection validation.
-
----
-
-## 3. Verifying Provable Reliability Locally
-
-Verify 10,000 simulated crash trials across all write boundaries:
-
+## 2. Run the 4-Act Crash-and-Recover Demo
 ```bash
-python -m phoenix.chaos --trials 10000 --report RELIABILITY.md
+python demo.py
 ```
+Demonstrates:
+1. **Act 1**: Pre-commit `SIGKILL` -> `/recover` replays once (`status='resumed'`).
+2. **Act 2**: Post-commit `SIGKILL` -> Turn-1 prompt alert + SHA-256 fingerprint check -> marked `recovered_landed` with **0 redundant writes**.
+3. **Act 3**: Real fault-injection wind tunnel (`5/5 RED` unguarded -> `ddmin` isolated -> `0/5 RED` guarded).
+4. **Act 4**: Self-contained dark-mode HTML forensic report export.
 
-All 10,000 trials will verify that Phoenix maintains **exactly 1 execution, 0 lost operations, and 0 duplicate writes**.
+---
+
+## 3. Validate with Hermes CLI
+```bash
+hermes plugins validate .
+```
+Verifies manifest schema, capability registrations, zero built-in tool collisions, and security scan (`14/14` checks green).
+
+---
+
+## 4. In-Chat Commands & Tools
+- `/phoenix status` — Inspect ledger counts and in-flight operations.
+- `/recover` — Owner-only forward recovery of interrupted operations.
+- `/phoenix guard on|off` — Toggle the opt-in same-session idempotency guard.
+- `/phoenix windtunnel` — Run the 6-check fault-injection suite.
+- `/phoenix report` — Generate standalone HTML forensic report.
+- `phoenix_ledger` — Read-only model tool (`status`, `explain`, `report`).
+- `phoenix_windtunnel` — Model tool to run the real wind tunnel suite.
