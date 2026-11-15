@@ -9,11 +9,10 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/NousResearch/hermes-agent/pull/152278"><img src="https://img.shields.io/badge/Catalog%20PR-%23152278-orange.svg" alt="PR #152278"></a>
+  <a href="https://github.com/NousResearch/hermes-agent/pull/154408"><img src="https://img.shields.io/badge/Catalog%20PR-%23154408-orange.svg" alt="PR #154408"></a>
   <a href="https://x.com/GreyPolitiynxa"><img src="https://img.shields.io/badge/Demo%20Film-Watch%20on%20X-black.svg" alt="Demo Film on X"></a>
-  <a href="RELIABILITY.md"><img src="https://img.shields.io/badge/Reliability%20Proof-10%2C000%2F10%2C000%20(0%20Dupes)-brightgreen.svg" alt="10k Crashes 0 Dupes"></a>
-  <img src="https://img.shields.io/badge/hermes%20validate-15%2F15%20passed-brightgreen.svg" alt="Hermes Validate">
-  <img src="https://img.shields.io/badge/tests-113%2F113%20passed-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/hermes%20validate-14%2F14%20passed-brightgreen.svg" alt="Hermes Validate">
+  <img src="https://img.shields.io/badge/tests-80%2F80%20passed-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/dependencies-0%20(stdlib%20only)-blue.svg" alt="Dependencies">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License"></a>
 </p>

@@ -1,16 +1,14 @@
-# Add plugin: `phoenix` v2.0.0 — The Exactly-Once Trust Layer for Autonomous Agents
+# Add plugin: `phoenix` v0.3.1 — The Exactly-Once Trust Layer for Autonomous Agents
 
 **Repository:** https://github.com/Ratz00007/phoenix  
-**Pinned Commit:** `ed34dfa824754983114c560d31162098e2b22c59` (https://github.com/Ratz00007/phoenix/commit/ed34dfa824754983114c560d31162098e2b22c59)  
+**Pinned Commit:** `REPLACEME`  
 **Maintainer:** @Ratz00007  
-**Version:** `2.0.0`  
+**Version:** `0.3.1`  
 **Dependencies:** 0 external dependencies (Python 3.11+ stdlib only)  
-**Desktop UI:** `@hermes/plugin-sdk` + `react` only (0 DOM overrides, 0 eval)  
 **License:** MIT  
 
 > ### **Kill your agent mid-write. It recovers having executed exactly once.**
 > Zero duplicate writes. Zero lost operations. Zero LLM calls during recovery.
-> **10,000-Crash Reliability Proof:** 10,000 / 10,000 trials passed with 0 duplicates and 0 lost ops.
 
 ```bash
 # Instant verification for judges (0 deps, 0 API keys):
@@ -25,12 +23,13 @@ Autonomous agents fail in the most dangerous operational window: *after* a tool 
 
 **Phoenix is the black box flight recorder for that failure mode.** It journals every tool call to a local SQLite WAL ledger *before* it runs (recording pre-execution target state fingerprints) and its outcome *after*. If interrupted, `/recover` uses pre/post state fingerprinting to verify whether mutations landed on disk, completing pending work safely with **zero duplicate writes** and **zero LLM calls**.
 
-### Phoenix 2.0 Feature Additions:
-1. **Desktop Flight Recorder Timeline:** Scrubbable event log, cryptographic diff viewer, and live value dashboard (`desktop/plugin.js`).
-2. **10,000-Crash Provable Durability Proof:** Continuous seeded chaos validation across all 5 write boundaries (`RELIABILITY.md`).
-3. **Real-Time Value Telemetry:** Live accounting of capital saved ($ saved), duplicate writes avoided, and avoided LLM turns.
-4. **Adapter Ecosystem:** Native support for Stripe (`Idempotency-Key`), Email (`Message-ID`), and SQL (unique upsert keys).
-5. **113/113 Unit Tests Passing:** 100% green test suite across all modules.
+### Phoenix v0.3.1 Core Capabilities:
+1. **Hardened Transactional SQLite WAL Ledger (`journal.py`):** Strict 0600 permissions on database and WAL/SHM sidecars, auto-retention pruning, path confinement under `plugin_data_dir("phoenix")`.
+2. **Deterministic State Fingerprinting (`keys.py`):** Pre/post SHA-256 target hashes detect whether disk mutated before crash (`recovered_landed` with 0 re-writes).
+3. **Turn-1 Autonomous Crash Detection (`core.py`):** Native `register_system_prompt_section` hook injects a zero-token crash alert informing the agent of in-flight operations.
+4. **Developer Wind Tunnel + Zeller ddmin (`windtunnel.py`):** Shrinks 8-step failure traces to 1 minimal counterexample in <50ms with 0 LLM calls (5/5 RED unguarded -> 5/5 GREEN guarded).
+5. **80/80 Unit Tests Passing:** 100% green test suite across all modules in <3.5s.
+6. **Zero Dependencies:** Pure Python 3.11+ standard library. Zero external packages, zero unauthorized network calls.
 
 ---
 
