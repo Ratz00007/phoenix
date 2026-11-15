@@ -23,11 +23,13 @@ Runs the exact flow the demo video and benchmarks showcase against a real SQLite
   Act 4 (Standalone Dark-Mode HTML Forensic Report):
     - Generates self-contained forensic HTML report via /phoenix report or --html flag.
 
-    python demo.py [--html [path]]
+    python demo.py [--html [path]] [--chaos]
 """
 
 from __future__ import annotations
 
+import importlib
+import json
 import os
 import shutil
 import sys
@@ -56,7 +58,142 @@ def write_tool(workdir: Path):
     return _write
 
 
+def run_chaos_demo() -> None:
+    """Run a live multi-step crash-and-recover chaos scenario against a temp SQLite WAL ledger."""
+    workdir = Path(tempfile.mkdtemp(prefix="phoenix-chaos-demo-", dir=tempfile.gettempdir()))
+    prev_data_dir = os.environ.get("PHOENIX_DATA_DIR")
+    prev_db_path = os.environ.get("PHOENIX_DB_PATH")
+    os.environ["PHOENIX_DATA_DIR"] = str(workdir / "data")
+    os.environ.pop("PHOENIX_DB_PATH", None)
+
+    app1 = None
+    app2 = None
+    try:
+        print("=" * 68)
+        print("PHOENIX CHAOS DEMO: Multi-Step Crash & Forward Recovery (SQLite WAL)")
+        print("=" * 68)
+
+        raw_tool = write_tool(workdir)
+        exec_counts: dict[str, int] = {}
+
+        def tracked_write(tool_name, args):
+            key = op_id(tool_name, args)
+            exec_counts[key] = exec_counts.get(key, 0) + 1
+            return raw_tool(args)
+
+        # Multi-step workflow against a single shared temporary SQLite WAL ledger
+        app1 = App()
+        app1.bind(type("Ctx", (), {"dispatch_tool": staticmethod(tracked_write)})())
+        print(f"WAL Ledger: {app1.journal.db_path}")
+
+        step1_args = {"path": str(workdir / "step1_config.txt"), "content": "env=prod\n"}
+        mw.tool_execution_middleware(
+            tool_name="write_file",
+            args=step1_args,
+            next_call=lambda a: tracked_write("write_file", a),
+        )
+
+        # Step 2: crash between intent and tool
+        step2_args = {"path": str(workdir / "step2_schema.txt"), "content": "CREATE TABLE t(id INT);\n"}
+        step2_op = op_id("write_file", step2_args)
+        step2_att = uuid.uuid4().hex
+        app1.journal.record_intent(
+            step2_att,
+            step2_op,
+            "write_file",
+            step2_args,
+            session_id="chaos-demo",
+            turn_id="turn-2",
+            pre_fp=target_fingerprint("write_file", step2_args),
+            idem_key=step2_op,
+        )
+
+        # Step 3: crash after tool execution, before post_fp / commit
+        step3_args = {"path": str(workdir / "step3_bundle.txt"), "content": "bundle_v2=ready\n"}
+        step3_op = op_id("write_file", step3_args)
+        step3_att = uuid.uuid4().hex
+        app1.journal.record_intent(
+            step3_att,
+            step3_op,
+            "write_file",
+            step3_args,
+            session_id="chaos-demo",
+            turn_id="turn-3",
+            pre_fp=target_fingerprint("write_file", step3_args),
+            idem_key=step3_op,
+        )
+        tracked_write("write_file", step3_args)
+
+        pre_crash_bytes = app1.journal.db_bytes()
+        pre_crash_inflight = len(app1.journal.in_flight())
+        print(f"Process 1 crashed: in_flight={pre_crash_inflight}, wal_db_bytes={pre_crash_bytes}")
+        app1.close()
+        app1 = None
+
+        # Process 2 boots and recovers
+        app2 = App()
+        app2.bind(type("Ctx", (), {"dispatch_tool": staticmethod(tracked_write)})())
+        rec_msg = app2.recover("")
+        print("\nRecovery Output:")
+        print(rec_msg)
+
+        # Run full deterministic chaos boundary suite
+        print("\nRunning deterministic crash-boundary fault-injection suite...")
+        chaos_mod = importlib.import_module(f"{phx.__name__}.chaos")
+        chaos_report = chaos_mod.run_chaos_suite(seed=42, ops_per_boundary=3, workdir=workdir / "suite")
+        print(chaos_mod.format_chaos_report(chaos_report))
+
+        timeline = app2.journal.timeline(limit=10)
+        stats_snap = {
+            **app2.journal.stats(),
+            "guard_enabled": bool(app2.guard_enabled),
+            "db_bytes": app2.journal.db_bytes(),
+        }
+        print("\nLive Recovery Telemetry:")
+        print("  stats:", json.dumps(stats_snap))
+        print(f"  timeline entries: {len(timeline)}")
+        for entry in timeline:
+            print(
+                f"    - op={entry['op_id']} tool={entry['tool']} status={entry['status']} "
+                f"duration_ms={entry['duration_ms']}"
+            )
+
+        ok = (
+            pre_crash_inflight == 2
+            and len(app2.journal.in_flight()) == 0
+            and app2.journal.get(step2_att)[4] == "resumed"
+            and app2.journal.get(step3_att)[4] == "recovered_landed"
+            and exec_counts.get(step2_op, 0) == 1
+            and exec_counts.get(step3_op, 0) == 1
+            and chaos_report.get("passed") is True
+            and chaos_report.get("duplicate_executions") == 0
+        )
+        print("\nPHOENIX CHAOS DEMO:", "PASS" if ok else "FAIL")
+        if not ok:
+            raise SystemExit(1)
+    finally:
+        for a in (app1, app2):
+            if a is not None:
+                try:
+                    a.close()
+                except Exception:
+                    pass
+        if prev_data_dir is None:
+            os.environ.pop("PHOENIX_DATA_DIR", None)
+        else:
+            os.environ["PHOENIX_DATA_DIR"] = prev_data_dir
+        if prev_db_path is None:
+            os.environ.pop("PHOENIX_DB_PATH", None)
+        else:
+            os.environ["PHOENIX_DB_PATH"] = prev_db_path
+        shutil.rmtree(workdir, ignore_errors=True)
+
+
 def main() -> None:
+    if "--chaos" in sys.argv:
+        run_chaos_demo()
+        return
+
     html_arg = None
     if "--html" in sys.argv:
         idx = sys.argv.index("--html")

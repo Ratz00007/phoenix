@@ -1109,9 +1109,10 @@ class TestDarioSafetyRulesAndFixes(Base):
 
     def test_dashboard_api_real_windtunnel_status(self):
         try:
-            from phoenix.dashboard.plugin_api import get_status
+            from phoenix.dashboard.plugin_api import get_status, post_windtunnel
         except ModuleNotFoundError:
-            from dashboard.plugin_api import get_status
+            from dashboard.plugin_api import get_status, post_windtunnel
+        post_windtunnel()
         status = get_status()
         self.assertIn("windtunnel_verdict", status)
         self.assertIn("PASS", status["windtunnel_verdict"])
@@ -1345,20 +1346,24 @@ class TestMaintainerReviewItems(Base):
         self.assertIn("retention: 7 days, 3 max rows", res)
 
     def test_dashboard_api_real_windtunnel_execution(self):
-        """Item 4: Real wind tunnel status queried and returned by dashboard plugin API."""
+        """Item 4: Real wind tunnel execution via POST /windtunnel and status persisted in GET /status."""
         try:
-            from phoenix.dashboard.plugin_api import get_status
+            from phoenix.dashboard.plugin_api import get_status, post_windtunnel
         except ImportError:
-            from dashboard.plugin_api import get_status
+            from dashboard.plugin_api import get_status, post_windtunnel
+
+        wt = post_windtunnel()
+        self.assertEqual(wt["status"], "ok")
+        self.assertIn("verdict", wt)
+        self.assertIn("PASS", wt["verdict"])
+        self.assertIn("/6", wt["verdict"])
+        self.assertIn("report", wt)
+        self.assertTrue(wt["report"]["passed"])
+        self.assertEqual(len(wt["report"]["checks"]), 6)
 
         data = get_status()
         self.assertEqual(data["status"], "ok")
-        self.assertIn("windtunnel_verdict", data)
-        self.assertIn("PASS", data["windtunnel_verdict"])
-        self.assertIn("/6", data["windtunnel_verdict"])
-        self.assertIn("windtunnel_report", data)
-        self.assertTrue(data["windtunnel_report"]["passed"])
-        self.assertEqual(len(data["windtunnel_report"]["checks"]), 6)
+        self.assertEqual(data["windtunnel_verdict"], wt["verdict"])
 
 
 if __name__ == "__main__":

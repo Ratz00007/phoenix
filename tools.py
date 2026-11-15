@@ -1,4 +1,4 @@
-"""Native Hermes agent tools for Phoenix: phoenix_ledger and phoenix_windtunnel."""
+"""Native Hermes agent tools for Phoenix: phoenix_ledger, phoenix_windtunnel, and phoenix_stats."""
 
 from __future__ import annotations
 
@@ -46,6 +46,18 @@ PHOENIX_WINDTUNNEL_SCHEMA = {
                 "default": 5,
             },
         },
+    },
+}
+
+PHOENIX_STATS_SCHEMA = {
+    "name": "phoenix_stats",
+    "description": (
+        "Return read-only Phoenix ledger telemetry and health metrics "
+        "(operation counts, idempotency guard state, SQLite WAL size, and windtunnel verdict)."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {},
     },
 }
 
@@ -199,6 +211,27 @@ def phoenix_windtunnel(args: Any = None, **kwargs: Any) -> str:
         })
 
 
+def phoenix_stats(args: Any = None, **kwargs: Any) -> str:
+    """Read-only tool handler for phoenix_stats."""
+    app = get_app()
+    j = app._journal()
+    stats = j.stats()
+    verdict = (j.get_meta("windtunnel_verdict", "UNKNOWN") if hasattr(j, "get_meta") else "UNKNOWN") or "UNKNOWN"
+    db_size = j.db_bytes() if hasattr(j, "db_bytes") else 0
+    return json.dumps({
+        "status": "ok",
+        "total": stats.get("total", 0),
+        "committed": stats.get("committed", 0),
+        "in_flight": stats.get("in_flight", 0),
+        "deduped": stats.get("deduped", 0),
+        "recovered_landed": stats.get("recovered_landed", 0),
+        "errors": stats.get("errors", 0),
+        "guard_enabled": bool(app.guard_enabled),
+        "db_bytes": db_size,
+        "windtunnel_verdict": verdict,
+    })
+
+
 def register_tools(ctx: Any) -> None:
     """Register Phoenix native agent tools with the Hermes plugin context."""
     if not hasattr(ctx, "register_tool"):
@@ -216,6 +249,12 @@ def register_tools(ctx: Any) -> None:
             phoenix_windtunnel,
             PHOENIX_WINDTUNNEL_SCHEMA,
             "Run the Phoenix deterministic fault-injection wind tunnel suite.",
+        ),
+        (
+            "phoenix_stats",
+            phoenix_stats,
+            PHOENIX_STATS_SCHEMA,
+            "Return read-only Phoenix ledger telemetry, guard state, WAL size, and windtunnel verdict.",
         ),
     ]
 

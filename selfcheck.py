@@ -100,11 +100,13 @@ def check_register() -> tuple[bool, str]:
             return False, "register() did not register /phoenix and /recover commands"
         if "resume" in ctx.cmds:
             return False, "register() registered /resume which collides with Hermes built-in command"
-        if "phoenix_ledger" not in ctx.tools or "phoenix_windtunnel" not in ctx.tools:
-            return False, "register() did not register phoenix_ledger and phoenix_windtunnel tools"
+        for required_tool in ("phoenix_ledger", "phoenix_stats", "phoenix_windtunnel"):
+            if required_tool not in ctx.tools:
+                return False, f"register() did not register {required_tool} tool"
         if "phoenix_recovery" not in ctx.prompt_sections:
             return False, "register() did not register phoenix_recovery system prompt section"
-        return True, "register(ctx) runs and registers middleware, 2 commands (/phoenix, /recover), 2 tools (phoenix_ledger, phoenix_windtunnel), and phoenix_recovery prompt section"
+        tool_list = ", ".join(sorted(ctx.tools.keys()))
+        return True, f"register(ctx) runs and registers middleware, {len(ctx.cmds)} commands (/phoenix, /recover), {len(ctx.tools)} tools ({tool_list}), and phoenix_recovery prompt section"
     except Exception as exc:  # noqa: BLE001
         return False, f"register(ctx) raised: {exc!r}"
     finally:

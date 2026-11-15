@@ -7,7 +7,7 @@ Hermes surfaces used (public API only):
   * ``tool_execution`` middleware — journals intent before every tool call and
     outcome after it (fail-open: a journaling error never breaks the agent).
   * ``/phoenix`` and ``/recover`` slash commands (never /resume to avoid Hermes collision).
-  * Native Hermes agent tools: ``phoenix_ledger`` and ``phoenix_windtunnel``.
+  * Native Hermes agent tools: ``phoenix_ledger``, ``phoenix_windtunnel``, and ``phoenix_stats``.
   * ``plugin_data_dir("phoenix")`` — durable SQLite (WAL) ledger.
 """
 

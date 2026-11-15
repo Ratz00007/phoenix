@@ -27,7 +27,7 @@ _REDACT_KV_RE = re.compile(
     re.IGNORECASE,
 )
 _REDACT_KV_NONSTR_RE = re.compile(
-    r'("(?:api[_-]?key|token|secret|password|passwd|auth|authorization|access[_-]?token|refresh[_-]?token|bearer)"\s*:\s*)[^\s,}\]]+',
+    r'("(?:api[_-]?key|token|secret|password|passwd|auth|authorization|access[_-]?token|refresh[_-]?token|bearer)"\s*:\s*)(?!")[^\s,}\]]+',
     re.IGNORECASE,
 )
 _REDACT_SK_RE = re.compile(r'\bsk-[a-zA-Z0-9_\-]{8,}\b')
@@ -74,6 +74,14 @@ CREATE INDEX IF NOT EXISTS idx_ops_op_id ON ops(op_id);
 CREATE INDEX IF NOT EXISTS idx_ops_status ON ops(status);
 CREATE INDEX IF NOT EXISTS idx_ops_ts_intent ON ops(ts_intent);
 CREATE INDEX IF NOT EXISTS idx_ops_session_id ON ops(session_id);
+CREATE TABLE IF NOT EXISTS fingerprints (
+    attempt_id   TEXT PRIMARY KEY,
+    op_id        TEXT NOT NULL,
+    pre_fp_json  TEXT,
+    post_fp_json TEXT,
+    idem_key     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_fingerprints_op_id ON fingerprints(op_id);
 CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     val TEXT NOT NULL
@@ -187,6 +195,7 @@ class Journal:
         turn_id=None,
         tool_call_id=None,
         pre_fp=None,
+        idem_key=None,
     ) -> None:
         with self._lock:
             c = self._connect()
@@ -208,9 +217,31 @@ class Journal:
                     time.time(),
                 ),
             )
+            c.execute(
+                "INSERT OR IGNORE INTO fingerprints (attempt_id, op_id, pre_fp_json, idem_key) VALUES (?,?,?,?)",
+                (attempt_id, op_id, pre_fp_json, idem_key or op_id),
+            )
             self._commit(c)
 
-    def record_outcome(self, attempt_id, op_id, status, result=None, error=None) -> None:
+    def record_post_fp(self, attempt_id: str, post_fp: Any) -> None:
+        """Persist post-execution target fingerprint for an attempt."""
+        with self._lock:
+            c = self._connect()
+            post_fp_json = json.dumps(post_fp, default=str) if post_fp is not None else None
+            cur = c.execute(
+                "UPDATE fingerprints SET post_fp_json=? WHERE attempt_id=?",
+                (post_fp_json, attempt_id),
+            )
+            if cur.rowcount == 0:
+                row = c.execute("SELECT op_id, pre_fp_json FROM ops WHERE attempt_id=?", (attempt_id,)).fetchone()
+                if row:
+                    c.execute(
+                        "INSERT OR IGNORE INTO fingerprints (attempt_id, op_id, pre_fp_json, post_fp_json, idem_key) VALUES (?,?,?,?,?)",
+                        (attempt_id, row[0], row[1], post_fp_json, row[0]),
+                    )
+            self._commit(c)
+
+    def record_outcome(self, attempt_id, op_id, status, result=None, error=None, post_fp=None) -> None:
         with self._lock:
             c = self._connect()
             result_json = redact_secrets(result)
@@ -227,9 +258,20 @@ class Journal:
                     op_id,
                 ),
             )
+            if post_fp is not None:
+                post_fp_json = json.dumps(post_fp, default=str)
+                cur = c.execute(
+                    "UPDATE fingerprints SET post_fp_json=? WHERE attempt_id=?",
+                    (post_fp_json, attempt_id),
+                )
+                if cur.rowcount == 0:
+                    c.execute(
+                        "INSERT OR IGNORE INTO fingerprints (attempt_id, op_id, post_fp_json, idem_key) VALUES (?,?,?,?)",
+                        (attempt_id, op_id, post_fp_json, op_id),
+                    )
             self._commit(c)
 
-    def mark_resumed(self, attempt_id, result=None, error=None, status: str = "resumed") -> None:
+    def mark_resumed(self, attempt_id, result=None, error=None, status: str = "resumed", post_fp=None) -> None:
         with self._lock:
             c = self._connect()
             result_json = redact_secrets(result)
@@ -245,6 +287,12 @@ class Journal:
                     attempt_id,
                 ),
             )
+            if post_fp is not None:
+                post_fp_json = json.dumps(post_fp, default=str)
+                c.execute(
+                    "UPDATE fingerprints SET post_fp_json=? WHERE attempt_id=?",
+                    (post_fp_json, attempt_id),
+                )
             self._commit(c)
 
     def clear_in_flight(self, reason: str = "cleared") -> None:
@@ -407,6 +455,110 @@ class Journal:
                 "ts_done": r[10],
             })
         return out
+
+    @classmethod
+    def _redact_parsed(cls, obj: Any) -> Any:
+        if isinstance(obj, str):
+            return redact_secrets(obj)
+        if isinstance(obj, list):
+            return [cls._redact_parsed(item) for item in obj]
+        if isinstance(obj, dict):
+            return {k: cls._redact_parsed(v) for k, v in obj.items()}
+        return obj
+
+    @classmethod
+    def _parse_json_redacted(cls, raw: str | None) -> Any:
+        if raw is None:
+            return None
+        try:
+            parsed = json.loads(raw)
+            return cls._redact_parsed(parsed)
+        except Exception:
+            return redact_secrets(raw)
+
+    def timeline(self, limit: int = 50, status: str | None = None, query: str | None = None) -> list[dict]:
+        """Return timeline entries joining ops with fingerprints (with secret redaction)."""
+        try:
+            lim = max(0, int(limit))
+        except (TypeError, ValueError):
+            lim = 50
+        if lim == 0:
+            return []
+
+        clauses: list[str] = []
+        params: list[Any] = []
+
+        if status is not None and str(status).strip():
+            clauses.append("o.status = ?")
+            params.append(str(status).strip())
+
+        if query is not None and str(query).strip():
+            q = f"%{str(query).strip()}%"
+            clauses.append(
+                "(o.tool LIKE ? OR o.op_id LIKE ? OR o.attempt_id LIKE ? "
+                "OR o.args_json LIKE ? OR COALESCE(o.result_json, '') LIKE ? "
+                "OR COALESCE(o.error, '') LIKE ? OR COALESCE(o.session_id, '') LIKE ?)"
+            )
+            params.extend([q, q, q, q, q, q, q])
+
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        sql = (
+            "SELECT o.attempt_id, o.op_id, o.tool, o.status, o.session_id, o.turn_id, "
+            "o.ts_intent, o.ts_done, "
+            "COALESCE(f.pre_fp_json, o.pre_fp_json) AS pre_fp_json, "
+            "f.post_fp_json, "
+            "COALESCE(f.idem_key, o.op_id) AS idem_key, "
+            "o.args_json, o.result_json, o.error "
+            "FROM ops o "
+            "LEFT JOIN fingerprints f ON o.attempt_id = f.attempt_id "
+            f"{where_sql} "
+            "ORDER BY o.ts_intent DESC, o.rowid DESC LIMIT ?"
+        )
+        params.append(lim)
+
+        with self._lock:
+            rows = self._connect().execute(sql, params).fetchall()
+
+        out: list[dict] = []
+        for r in rows:
+            ts_intent = r[6]
+            ts_done = r[7]
+            duration_ms = (
+                round(max(0.0, (ts_done - ts_intent) * 1000.0), 3)
+                if ts_intent is not None and ts_done is not None
+                else None
+            )
+            out.append({
+                "attempt_id": r[0],
+                "op_id": r[1],
+                "tool": r[2],
+                "status": r[3],
+                "session_id": r[4],
+                "turn_id": r[5],
+                "ts_intent": ts_intent,
+                "ts_done": ts_done,
+                "duration_ms": duration_ms,
+                "pre_fp": self._parse_json_redacted(r[8]),
+                "post_fp": self._parse_json_redacted(r[9]),
+                "idem_key": r[10],
+                "args": self._parse_json_redacted(r[11]),
+                "result": self._parse_json_redacted(r[12]),
+                "error": redact_secrets(r[13]) if r[13] is not None else None,
+            })
+        return out
+
+    def db_bytes(self) -> int:
+        """Return total size in bytes of the SQLite database file and its WAL sidecar."""
+        if self.db_path == ":memory:":
+            return 0
+        total = 0
+        for p in (Path(self.db_path), Path(f"{self.db_path}-wal")):
+            try:
+                if p.exists():
+                    total += p.stat().st_size
+            except OSError:
+                pass
+        return total
 
     def stats(self) -> dict:
         c = self._connect()

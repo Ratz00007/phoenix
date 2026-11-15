@@ -1,11 +1,12 @@
-"""Phoenix v0.3.1 Official Judge Evaluation Script.
+"""Phoenix Official Judge Evaluation Script.
 
 Single-command judge evaluator for the Phoenix black box flight recorder plugin.
 Runs:
 1. Complete unit test suite (unittest discover -s tests)
 2. Hermes official plugin doctor checks (manifest, permissions, public API, imports)
 3. Developer wind tunnel (HERMES_DEV_TRACE multi-mutation trace with Zeller ddmin)
-4. Prints an aesthetic green ASCII evaluation scorecard with 0 failures.
+4. Deterministic chaos crash-boundary engine (chaos.py)
+5. Prints an aesthetic green ASCII evaluation scorecard with exact executed counts.
 
 Usage:
     python judge_eval.py
@@ -134,6 +135,21 @@ def run_windtunnel_audit() -> tuple[bool, dict]:
     }
 
 
+def run_chaos_audit() -> tuple[bool, dict]:
+    """Run deterministic crash-boundary fault-injection trials."""
+    import importlib
+
+    sys.path.insert(0, str(ROOT))
+    sys.path.insert(0, str(REPO_ROOT))
+    sys.path.insert(0, str(ROOT / "tests"))
+
+    from _loader import load_plugin
+    phx = load_plugin(ROOT)
+    chaos_mod = importlib.import_module(f"{phx.__name__}.chaos")
+    chaos_res = chaos_mod.run_chaos_suite(seed=42, ops_per_boundary=3)
+    return bool(chaos_res.get("passed", False)), chaos_res
+
+
 def main(silent: bool = False, skip_unit_tests: bool = False) -> int:
     t_start = time.perf_counter()
 
@@ -151,14 +167,17 @@ def main(silent: bool = False, skip_unit_tests: bool = False) -> int:
     # 3. Run Wind Tunnel & ddmin
     wt_ok, wt_data = run_windtunnel_audit()
 
+    # 4. Run Deterministic Chaos Crash-Boundary Engine
+    chaos_ok, chaos_data = run_chaos_audit()
+
     total_time = time.perf_counter() - t_start
-    all_passed = ut_ok and hc_ok and wt_ok
+    all_passed = ut_ok and hc_ok and wt_ok and chaos_ok
 
     if not silent:
         width = 82
         print()
         print(f"{CYAN}{'=' * width}{RESET}")
-        print(f"{BOLD}{CYAN}{'PHOENIX v0.3.1 — OFFICIAL JUDGE EVALUATION SCORECARD':^{width}}{RESET}")
+        print(f"{BOLD}{CYAN}{'PHOENIX v2.0.0 — OFFICIAL JUDGE EVALUATION SCORECARD':^{width}}{RESET}")
         print(f"{CYAN}{'=' * width}{RESET}")
         print()
 
@@ -186,19 +205,33 @@ def main(silent: bool = False, skip_unit_tests: bool = False) -> int:
         print(f"         {GREEN}✓{RESET} Guarded Green vs Unguarded Red verified across all fault injection modes")
         print()
 
+        # Step 4: Chaos Crash-Boundary Engine
+        chaos_passed = chaos_data.get("passed_trials", 0)
+        chaos_total = chaos_data.get("total_trials", 0)
+        chaos_dups = chaos_data.get("duplicate_executions", 0)
+        chaos_ms = chaos_data.get("elapsed_ms", 0.0)
+        chaos_bounds = len(chaos_data.get("boundaries_tested", []))
+        status_tag = f"{GREEN}[PASS]{RESET}" if chaos_ok else f"{RED}[FAIL]{RESET}"
+        print(f"  {status_tag} {BOLD}Deterministic Chaos Crash-Boundary Engine:{RESET}")
+        print(f"         {GREEN if chaos_ok else RED}{'✓' if chaos_ok else '✗'}{RESET} {chaos_passed}/{chaos_total} trials passed across {chaos_bounds} crash boundaries ({chaos_dups} duplicate executions) in {chaos_ms:.1f}ms")
+        print()
+
         # Scorecard Summary Table
         print(f"{CYAN}{'-' * width}{RESET}")
         print(f"  {BOLD}{'AUDIT CATEGORY':<34} {'STANDARD / SPEC':<30} {'RESULT':<14}{RESET}")
         print(f"{CYAN}{'-' * width}{RESET}")
 
+        hc_passed_cnt = sum(1 for _, ok, _ in hc_details if ok)
+        hc_total_cnt = len(hc_details)
         rows = [
             ("Unit Test Discovery", "unittest discover -s tests", f"{GREEN}PASS ({test_count}/{test_count}){RESET}" if (ut_ok and test_count > 0) else (f"{GREEN}PASS (Parent){RESET}" if ut_ok else f"{RED}FAIL{RESET}")),
-            ("Manifest & Plugin Schema", "Hermes standalone spec", f"{GREEN}PASS (Valid){RESET}" if hc_ok else f"{RED}FAIL{RESET}"),
-            ("Zero Host Monkeypatching", "Public plugin APIs only", f"{GREEN}PASS (100% Clean){RESET}" if hc_ok else f"{RED}FAIL{RESET}"),
+            ("Manifest & Plugin Schema", "Hermes standalone spec", f"{GREEN}PASS ({hc_passed_cnt}/{hc_total_cnt}){RESET}" if hc_ok else f"{RED}FAIL ({hc_passed_cnt}/{hc_total_cnt}){RESET}"),
+            ("Zero Host Monkeypatching", "Public plugin APIs only", f"{GREEN}PASS (Clean){RESET}" if hc_ok else f"{RED}FAIL{RESET}"),
             ("Secret Redaction", "Journal sanitization regex", f"{GREEN}PASS (Enforced){RESET}" if ut_ok else f"{RED}FAIL{RESET}"),
             ("Target State Verification", "write_file + patch unified diff", f"{GREEN}PASS (SHA-256 verified){RESET}" if ut_ok else f"{RED}FAIL{RESET}"),
-            ("Developer Wind Tunnel", "Zeller ddmin fault-isolation", f"{GREEN}PASS (Isolated in 1 step){RESET}" if wt_ok else f"{RED}FAIL{RESET}"),
-            ("Idempotency Guard", "Double-execution prevention", f"{GREEN}PASS (0 Duplicate Writes){RESET}" if (wt_ok and ut_ok) else f"{RED}FAIL{RESET}"),
+            ("Developer Wind Tunnel", "Zeller ddmin fault-isolation", f"{GREEN}PASS ({wt_data.get('ddmin_steps')} step){RESET}" if wt_ok else f"{RED}FAIL{RESET}"),
+            ("Chaos Crash Boundaries", "4 boundaries, 0 duplicate execs", f"{GREEN}PASS ({chaos_passed}/{chaos_total}){RESET}" if chaos_ok else f"{RED}FAIL ({chaos_passed}/{chaos_total}){RESET}"),
+            ("Idempotency Guard", "Double-execution prevention", f"{GREEN}PASS ({chaos_dups} Duplicate Writes){RESET}" if (wt_ok and ut_ok and chaos_ok) else f"{RED}FAIL{RESET}"),
             ("Zero LLM Recovery", "WAL state replay", f"{GREEN}PASS (0 Tokens Wasted){RESET}" if ut_ok else f"{RED}FAIL{RESET}"),
         ]
 
