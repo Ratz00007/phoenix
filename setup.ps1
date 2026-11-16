@@ -17,7 +17,7 @@ Set-Location $root
 Write-Host "== init + first commit =="
 git init -b main
 git add -A
-git commit -m "Phoenix v0.2.0: crash-proof ledger, idempotency guard & deterministic wind tunnel"
+git commit -m "Phoenix v2.0.0: crash-proof ledger, idempotency guard & deterministic wind tunnel"
 
 Write-Host "== fill handle in catalog entry =="
 $catalog = Join-Path $root "submit\phoenix.yaml"

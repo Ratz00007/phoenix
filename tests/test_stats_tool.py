@@ -233,6 +233,32 @@ class TestPhoenixStatsTool(unittest.TestCase):
         self.assertEqual(self.app._journal().stats()["total"], 0)
         self.assertEqual(len(called), 1)
 
+    def test_middleware_records_pre_and_post_fp_in_timeline(self):
+        mw = phx.middleware.make_middleware(lambda: self.app)
+        target = self.tmpdir / "captured.txt"
+
+        def write_next(args):
+            Path(args["path"]).write_text(args["content"], encoding="utf-8")
+            return {"ok": True, "path": args["path"]}
+
+        mw(
+            tool_name="write_file",
+            args={"path": str(target), "content": "phoenix-v2"},
+            session_id="sess-fp",
+            next_call=write_next,
+        )
+
+        rows = self.app._journal().timeline(limit=5)
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["status"], "ok")
+        self.assertIsNotNone(row["pre_fp"])
+        self.assertFalse(row["pre_fp"]["exists"])
+        self.assertIsNotNone(row["post_fp"])
+        self.assertTrue(row["post_fp"]["exists"])
+        self.assertEqual(row["post_fp"]["size"], len("phoenix-v2"))
+        self.assertIsNotNone(row["post_fp"]["sha256"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -12,7 +12,7 @@ from typing import Any
 from .journal import Journal
 
 try:
-    from .keys import has_target_changed, is_hermes_error_result, is_target_fully_committed
+    from .keys import has_target_changed, is_hermes_error_result, is_target_fully_committed, target_fingerprint
 except ImportError:
     # Safe fallbacks if keys.py is concurrently being written
     def has_target_changed(fp) -> bool:
@@ -25,6 +25,9 @@ except ImportError:
 
     def is_target_fully_committed(tool_name: str, args: Any, pre_fp: dict | None = None) -> bool:
         return False
+
+    def target_fingerprint(tool_name: str, args: Any, state_probe=None) -> dict | None:
+        return None
 
 _TOOL_NAME_RE = re.compile(r"^[a-zA-Z0-9_.:-]{1,64}$")
 _OP_ID_RE = re.compile(r"^[a-zA-Z0-9_]{1,32}$")
@@ -296,6 +299,11 @@ class App:
         except ImportError:
             _itfc = is_target_fully_committed
 
+        try:
+            from .keys import target_fingerprint as _tfp
+        except ImportError:
+            _tfp = target_fingerprint
+
         for attempt_id, op_id, tool, args_json, session_id, turn_id, ts in inflight:
             if wanted and not (attempt_id in wanted or op_id in wanted):
                 continue
@@ -333,10 +341,18 @@ class App:
             if target_committed or (pre_fp is not None and target_changed):
                 landed_path = (pre_fp.get("path") if isinstance(pre_fp, dict) else None) or (args.get("path") or args.get("file_path"))
                 landed_result = {"recovered": "already_landed", "path": str(landed_path) if landed_path else None}
+                post_fp = None
                 try:
-                    j.mark_resumed(attempt_id, result=landed_result, status="recovered_landed")
+                    post_fp = _tfp(tool, args)
+                except Exception:
+                    post_fp = None
+                try:
+                    j.mark_resumed(attempt_id, result=landed_result, status="recovered_landed", post_fp=post_fp)
                 except TypeError:
-                    j.mark_resumed(attempt_id, result=landed_result)
+                    try:
+                        j.mark_resumed(attempt_id, result=landed_result, status="recovered_landed")
+                    except TypeError:
+                        j.mark_resumed(attempt_id, result=landed_result)
                 resumed += 1
                 lines.append(f"recover {tool} {op_id}")
                 lines.append("  -> already landed on disk (fingerprint changed); marked recovered without re-executing")
@@ -355,6 +371,11 @@ class App:
                     pre_fp=pre_fp,
                 )
                 result = self.ctx.dispatch_tool(tool, args) if self.ctx is not None else None
+                post_fp = None
+                try:
+                    post_fp = _tfp(tool, args)
+                except Exception:
+                    post_fp = None
                 is_err = False
                 err_msg = None
                 try:
@@ -365,12 +386,15 @@ class App:
                         err_msg = str(result["error"])
 
                 if is_err:
-                    j.record_outcome(recov_attempt_id, op_id, "error", result=result, error=err_msg)
-                    j.record_outcome(attempt_id, op_id, "error", result=result, error=err_msg)
+                    j.record_outcome(recov_attempt_id, op_id, "error", result=result, error=err_msg, post_fp=post_fp)
+                    j.record_outcome(attempt_id, op_id, "error", result=result, error=err_msg, post_fp=post_fp)
                     lines.append(f"  -> failed: {err_msg}")
                 else:
-                    j.record_outcome(recov_attempt_id, op_id, "ok", result=result)
-                    j.mark_resumed(attempt_id, result=result)
+                    j.record_outcome(recov_attempt_id, op_id, "ok", result=result, post_fp=post_fp)
+                    try:
+                        j.mark_resumed(attempt_id, result=result, post_fp=post_fp)
+                    except TypeError:
+                        j.mark_resumed(attempt_id, result=result)
                     resumed += 1
                     lines.append("  -> resumed exactly once")
             except Exception as exc:  # noqa: BLE001 — recovery must record, never crash

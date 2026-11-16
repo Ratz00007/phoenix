@@ -122,7 +122,13 @@ function computeFpComparison(ev) {
   if (preStr === postStr) {
     return { verdict: 'MATCH', variant: 'success', pre: preStr, post: postStr };
   }
-  return { verdict: 'MUTATED', variant: 'destructive', pre: preStr, post: postStr };
+  if (ev.status === 'error') {
+    return { verdict: 'MUTATED', variant: 'destructive', pre: preStr, post: postStr };
+  }
+  if (ev.status === 'recovered_landed') {
+    return { verdict: 'LANDED', variant: 'warn', pre: preStr, post: postStr };
+  }
+  return { verdict: 'UPDATED', variant: 'default', pre: preStr, post: postStr };
 }
 
 function normalizeEvents(timelineData, statusData) {

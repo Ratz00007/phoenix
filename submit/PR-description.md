@@ -28,7 +28,7 @@ Autonomous agents fail in the most dangerous operational window: *after* a tool 
 3. **Turn-1 Autonomous Crash Detection (`core.py`):** Native `register_system_prompt_section` hook injects a zero-token crash alert informing the agent of in-flight operations.
 4. **Developer Wind Tunnel, Zeller `ddmin` & Chaos Engine (`windtunnel.py`, `chaos.py`):** Shrinks 8-step failure traces to 1 minimal counterexample with 0 LLM calls and verifies 12/12 deterministic chaos trials across 4 crash boundaries (`0` duplicate executions).
 5. **Hermes Desktop SDK & Web Dashboard Surfaces (`desktop/plugin.js`, `dashboard/`):** Full `@hermes/plugin-sdk` route/sidebar/pane/statusbar/palette integration and FastAPI `plugin_api.py` telemetry endpoints.
-6. **105/105 Unit Tests Passing:** 100% green test suite across all modules with zero external runtime dependencies.
+6. **106/106 Unit Tests Passing:** 100% green test suite across all modules with zero external runtime dependencies.
 
 ---
 
@@ -118,10 +118,10 @@ Phoenix operates as a **flight recorder**: on reboot, Turn-1 autonomous crash de
 ```
 
 Receipts verified on clean checkout:
-- `python judge_eval.py` (Official judge evaluation: **100% PASS** — 105/105 unit tests, 5/5 doctor checks, wind tunnel ddmin, 12/12 chaos trials)
+- `python judge_eval.py` (Official judge evaluation: **100% PASS** — 106/106 unit tests, 5/5 doctor checks, wind tunnel ddmin, 12/12 chaos trials)
 - `python selfcheck.py` (`PHOENIX SELF-CHECK: PASS` across all 7 checks)
 - `python demo.py` & `python demo.py --chaos` (`PHOENIX DEMO: PASS` — all 4 acts + deterministic chaos verified)
-- `python -m unittest discover -s tests -v` (105/105 unit tests passing green)
+- `python -m unittest discover -s tests -v` (106/106 unit tests passing green)
 - `node --check desktop/plugin.js && node --check dashboard/dist/index.js` (zero syntax errors, zero desktop lint findings)
 
 ### Patch Verification & State Fingerprinting

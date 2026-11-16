@@ -107,7 +107,13 @@
     if (preStr === postStr) {
       return { verdict: "MATCH", color: "#10b981", pre: preStr, post: postStr };
     }
-    return { verdict: "MUTATED", color: "#ef4444", pre: preStr, post: postStr };
+    if (ev.status === "error") {
+      return { verdict: "MUTATED", color: "#ef4444", pre: preStr, post: postStr };
+    }
+    if (ev.status === "recovered_landed") {
+      return { verdict: "LANDED", color: "#f59e0b", pre: preStr, post: postStr };
+    }
+    return { verdict: "UPDATED", color: "#06b6d4", pre: preStr, post: postStr };
   }
 
   function normalizeEvents(timelineData, statusData) {

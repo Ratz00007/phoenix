@@ -22,15 +22,6 @@ import sys
 import time
 from pathlib import Path
 
-# Enable VT100 / ANSI escape processing on Windows console
-if os.name == "nt":
-    try:
-        import ctypes
-        kernel32 = ctypes.windll.kernel32
-        kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
-    except Exception:
-        pass
-
 ROOT = Path(__file__).resolve().parent
 REPO_ROOT = ROOT.parent if (ROOT.parent / "phoenix").exists() else ROOT
 

@@ -207,7 +207,15 @@ def make_middleware(
         # 2) Journal intent BEFORE execution (fail-open)
         try:
             app._journal().record_intent(
-                attempt, key, tool, args, session_id, turn_id, tool_call_id, pre_fp=pre_fp
+                attempt,
+                key,
+                tool,
+                args,
+                session_id,
+                turn_id,
+                tool_call_id,
+                pre_fp=pre_fp,
+                idem_key=explicit_key or key,
             )
         except Exception:
             pass
@@ -216,19 +224,35 @@ def make_middleware(
         try:
             result = kwargs["next_call"](kwargs.get("args"))
         except Exception as exc:
+            post_fp = None
             try:
-                app._journal().record_outcome(attempt, key, "error", error=repr(exc))
+                post_fp = target_fingerprint(tool, args, state_probe=state_probe)
+                if isinstance(post_fp, dict) and state_probe is not None:
+                    post_fp["tool"] = tool
+                    post_fp["args"] = args
+            except Exception:
+                post_fp = None
+            try:
+                app._journal().record_outcome(attempt, key, "error", error=repr(exc), post_fp=post_fp)
             except Exception:
                 pass
             raise
 
         # 4) Journal outcome AFTER execution.
         try:
+            post_fp = None
+            try:
+                post_fp = target_fingerprint(tool, args, state_probe=state_probe)
+                if isinstance(post_fp, dict) and state_probe is not None:
+                    post_fp["tool"] = tool
+                    post_fp["args"] = args
+            except Exception:
+                post_fp = None
             is_err, err_msg = is_hermes_error_result(result)
             if is_err:
-                app._journal().record_outcome(attempt, key, "error", result=result, error=err_msg)
+                app._journal().record_outcome(attempt, key, "error", result=result, error=err_msg, post_fp=post_fp)
             else:
-                app._journal().record_outcome(attempt, key, "ok", result=result)
+                app._journal().record_outcome(attempt, key, "ok", result=result, post_fp=post_fp)
         except Exception:
             pass
 
