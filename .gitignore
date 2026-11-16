@@ -11,3 +11,7 @@ phoenix-demo-*/
 /dist/
 !dashboard/dist/
 .venv/
+phoenix-report.html
+.DS_Store
+.pytest_cache/
+

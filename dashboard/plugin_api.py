@@ -112,13 +112,18 @@ def get_timeline(
     q: str | None = None,
 ) -> dict[str, Any]:
     """Query recent journal operations with optional status and text filtering."""
+    try:
+        safe_limit = max(0, min(int(limit), 500))
+    except (TypeError, ValueError):
+        safe_limit = 50
+
     app = _get_app()
     j = app._journal()
 
     if hasattr(j, "timeline"):
-        items = j.timeline(limit=limit, status=status, query=q)
+        items = j.timeline(limit=safe_limit, status=status, query=q)
     else:
-        items = j.recent(limit=limit)
+        items = j.recent(limit=safe_limit)
         if status:
             items = [item for item in items if item.get("status") == status]
         if q:

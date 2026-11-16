@@ -698,7 +698,7 @@ function createPhoenixFlightRecorder(ctx) {
 
     const statusData = statusQuery.data || {};
     const stats = statusData.stats || statusData;
-    const guardOn = statusData.guard_enabled !== undefined ? Boolean(statusData.guard_enabled) : true;
+    const guardOn = statusData.guard_enabled !== undefined ? Boolean(statusData.guard_enabled) : false;
     const events = useMemo(
       () => normalizeEvents(timelineQuery.data, statusData),
       [timelineQuery.data, statusData]
@@ -1058,7 +1058,7 @@ function createPhoenixDrawerPane(ctx) {
 
     const data = statusQuery.data || {};
     const stats = data.stats || data;
-    const guardOn = data.guard_enabled !== undefined ? Boolean(data.guard_enabled) : true;
+    const guardOn = data.guard_enabled !== undefined ? Boolean(data.guard_enabled) : false;
     const inFlight = stats.in_flight !== undefined ? stats.in_flight : 0;
     const latest = normalizeEvents(timelineQuery.data, data).slice(0, 10);
 
@@ -1175,7 +1175,7 @@ function createPhoenixStatusPill(ctx) {
 
     const data = statusQuery.data || {};
     const stats = data.stats || data;
-    const guardOn = data.guard_enabled !== undefined ? Boolean(data.guard_enabled) : true;
+    const guardOn = data.guard_enabled !== undefined ? Boolean(data.guard_enabled) : false;
     const inFlight = stats.in_flight !== undefined ? stats.in_flight : 0;
 
     return jsx(Tip, {

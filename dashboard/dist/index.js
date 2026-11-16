@@ -31,17 +31,17 @@
   var STATUS_FILTERS = ["all", "intent", "ok", "deduped", "recovered_landed", "resumed", "error"];
 
   var STATUS_COLORS = {
-    ok: "#10b981",
-    committed: "#10b981",
-    deduped: "#06b6d4",
-    recovered_landed: "#f59e0b",
-    resumed: "#f59e0b",
-    intent: "#f59e0b",
-    error: "#ef4444"
+    ok: "var(--color-success, #10b981)",
+    committed: "var(--color-success, #10b981)",
+    deduped: "var(--color-primary, #06b6d4)",
+    recovered_landed: "var(--color-warning, #f59e0b)",
+    resumed: "var(--color-warning, #f59e0b)",
+    intent: "var(--color-warning, #f59e0b)",
+    error: "var(--color-destructive, #ef4444)"
   };
 
   function statusColor(status) {
-    return STATUS_COLORS[status] || "#9ca3af";
+    return STATUS_COLORS[status] || "var(--color-muted-foreground, #9ca3af)";
   }
 
   function formatJson(value) {
@@ -100,20 +100,20 @@
     var pre = ev.pre_fp || ev.pre_fp_json || null;
     var post = ev.post_fp || ev.post_fp_json || null;
     if (!pre || !post) {
-      return { verdict: "PENDING", color: "#f59e0b", pre: pre, post: post };
+      return { verdict: "PENDING", color: "var(--color-warning, #f59e0b)", pre: pre, post: post };
     }
     var preStr = typeof pre === "string" ? pre : JSON.stringify(pre);
     var postStr = typeof post === "string" ? post : JSON.stringify(post);
     if (preStr === postStr) {
-      return { verdict: "MATCH", color: "#10b981", pre: preStr, post: postStr };
+      return { verdict: "MATCH", color: "var(--color-success, #10b981)", pre: preStr, post: postStr };
     }
     if (ev.status === "error") {
-      return { verdict: "MUTATED", color: "#ef4444", pre: preStr, post: postStr };
+      return { verdict: "MUTATED", color: "var(--color-destructive, #ef4444)", pre: preStr, post: postStr };
     }
     if (ev.status === "recovered_landed") {
-      return { verdict: "LANDED", color: "#f59e0b", pre: preStr, post: postStr };
+      return { verdict: "LANDED", color: "var(--color-warning, #f59e0b)", pre: preStr, post: postStr };
     }
-    return { verdict: "UPDATED", color: "#06b6d4", pre: preStr, post: postStr };
+    return { verdict: "UPDATED", color: "var(--color-primary, #06b6d4)", pre: preStr, post: postStr };
   }
 
   function normalizeEvents(timelineData, statusData) {
@@ -146,6 +146,8 @@
       navigator.clipboard.writeText(String(text)).then(onDone).catch(function () {});
     }
   }
+
+  var MONO_FONT = 'var(--theme-font-mono, ui-monospace, "SF Mono", Menlo, Consolas, monospace)';
 
   function PhoenixDashboardPanel() {
     var statusHook = useState({ loading: true, data: null, error: null });
@@ -223,10 +225,10 @@
 
     var containerStyle = {
       padding: "20px",
-      color: "var(--ui-text, #f3f4f6)",
-      backgroundColor: "var(--ui-bg, #090d16)",
-      borderRadius: "12px",
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      color: "var(--color-card-foreground, #f3f4f6)",
+      backgroundColor: "var(--background-base, #090d16)",
+      borderRadius: "var(--theme-radius, 12px)",
+      fontFamily: 'var(--theme-font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif)',
       minHeight: "480px"
     };
 
@@ -236,15 +238,15 @@
       alignItems: "center",
       marginBottom: "16px",
       paddingBottom: "14px",
-      borderBottom: "1px solid var(--ui-border, #1f293d)",
+      borderBottom: "1px solid var(--color-border, #1f293d)",
       flexWrap: "wrap",
       gap: "10px"
     };
 
     var btnStyle = {
-      backgroundColor: "var(--ui-surface, #1f293d)",
-      color: "var(--ui-text, #e5e7eb)",
-      border: "1px solid var(--ui-border, #374151)",
+      backgroundColor: "var(--color-secondary, #1f293d)",
+      color: "var(--color-secondary-foreground, #e5e7eb)",
+      border: "1px solid var(--color-border, #374151)",
       borderRadius: "6px",
       padding: "6px 12px",
       fontSize: "12px",
@@ -252,12 +254,28 @@
       cursor: "pointer"
     };
 
+    var cardBoxStyle = {
+      backgroundColor: "var(--color-card, #111827)",
+      border: "1px solid var(--color-border, #1f293d)",
+      borderRadius: "8px"
+    };
+
+    var insetBoxStyle = {
+      backgroundColor: "var(--background-base, #0b1220)",
+      border: "1px solid var(--color-border, #1f293d)",
+      borderRadius: "6px"
+    };
+
     if (statusState.loading && !statusState.data) {
       return e(
         "div",
         { style: containerStyle },
         e("div", { style: headerStyle }, e("strong", null, "Phoenix Flight Recorder")),
-        e("div", { style: { padding: "40px", textAlign: "center", color: "#9ca3af" } }, "Loading Phoenix WAL state...")
+        e(
+          "div",
+          { style: { padding: "40px", textAlign: "center", color: "var(--color-muted-foreground, #9ca3af)" } },
+          "Loading Phoenix WAL state..."
+        )
       );
     }
 
@@ -271,10 +289,10 @@
           {
             style: {
               padding: "14px",
-              backgroundColor: "rgba(239, 68, 68, 0.15)",
-              border: "1px solid rgba(239, 68, 68, 0.4)",
+              backgroundColor: "rgba(239, 68, 68, 0.12)",
+              border: "1px solid var(--color-destructive, #ef4444)",
               borderRadius: "8px",
-              color: "#fca5a5"
+              color: "var(--color-destructive, #fca5a5)"
             }
           },
           "Failed to load Phoenix status: " + statusState.error
@@ -285,7 +303,7 @@
 
     var data = statusState.data || {};
     var stats = data.stats || data;
-    var guardOn = Boolean(data.guard_enabled !== undefined ? data.guard_enabled : true);
+    var guardOn = Boolean(data.guard_enabled !== undefined ? data.guard_enabled : false);
     var events = timelineEvents.length > 0 ? timelineEvents : normalizeEvents(null, data);
     var recoveredCount = typeof data.recovered_landed === "number"
       ? data.recovered_landed
@@ -335,12 +353,7 @@
         "div",
         {
           key: label,
-          style: {
-            backgroundColor: "var(--ui-surface, #111827)",
-            border: "1px solid var(--ui-border, #1f293d)",
-            borderRadius: "8px",
-            padding: "12px 14px"
-          }
+          style: Object.assign({}, cardBoxStyle, { padding: "12px 14px" })
         },
         e(
           "div",
@@ -348,7 +361,7 @@
             style: {
               fontSize: "11px",
               fontWeight: 600,
-              color: "#9ca3af",
+              color: "var(--color-muted-foreground, #9ca3af)",
               textTransform: "uppercase",
               letterSpacing: "0.05em",
               marginBottom: "4px"
@@ -362,7 +375,7 @@
             style: {
               fontSize: "22px",
               fontWeight: 800,
-              color: color || "#ffffff"
+              color: color || "var(--color-card-foreground, #f3f4f6)"
             }
           },
           String(value)
@@ -378,7 +391,14 @@
       if (!selectedEvent) {
         return e(
           "div",
-          { style: { padding: "32px", textAlign: "center", color: "#9ca3af", fontSize: "13px" } },
+          {
+            style: {
+              padding: "32px",
+              textAlign: "center",
+              color: "var(--color-muted-foreground, #9ca3af)",
+              fontSize: "13px"
+            }
+          },
           "Select a WAL event to inspect redacted args, idempotency key, SHA-256 fingerprints, and outcome."
         );
       }
@@ -400,7 +420,7 @@
             "div",
             { style: { display: "flex", alignItems: "center", gap: "8px" } },
             e("span", { style: { width: "8px", height: "8px", borderRadius: "50%", backgroundColor: statusColor(selectedEvent.status), display: "inline-block" } }),
-            e("strong", { style: { fontFamily: "monospace", fontSize: "14px" } }, selectedEvent.tool || selectedEvent.tool_name || "tool"),
+            e("strong", { style: { fontFamily: MONO_FONT, fontSize: "14px" } }, selectedEvent.tool || selectedEvent.tool_name || "tool"),
             e(
               "span",
               {
@@ -417,7 +437,7 @@
           ),
           e(
             "span",
-            { style: { fontSize: "12px", color: "#9ca3af" } },
+            { style: { fontSize: "12px", color: "var(--color-muted-foreground, #9ca3af)" } },
             (latency !== null ? latency + "ms · " : "") + formatRelativeTime(selectedEvent.ts_done || selectedEvent.ts_intent || selectedEvent.timestamp)
           )
         ),
@@ -426,11 +446,11 @@
           { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "8px" } },
           e(
             "div",
-            { style: { backgroundColor: "#0b1220", border: "1px solid #1f293d", borderRadius: "6px", padding: "8px 10px" } },
+            { style: Object.assign({}, insetBoxStyle, { padding: "8px 10px" }) },
             e(
               "div",
               { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" } },
-              e("span", { style: { fontSize: "10px", color: "#9ca3af", fontWeight: 700 } }, "ATTEMPT ID"),
+              e("span", { style: { fontSize: "10px", color: "var(--color-muted-foreground, #9ca3af)", fontWeight: 700 } }, "ATTEMPT ID"),
               e(
                 "button",
                 {
@@ -443,15 +463,15 @@
                 copiedKey === "attempt" ? "Copied" : "Copy"
               )
             ),
-            e("div", { style: { fontFamily: "monospace", fontSize: "11px", wordBreak: "break-all" } }, attemptId)
+            e("div", { style: { fontFamily: MONO_FONT, fontSize: "11px", wordBreak: "break-all" } }, attemptId)
           ),
           e(
             "div",
-            { style: { backgroundColor: "#0b1220", border: "1px solid #1f293d", borderRadius: "6px", padding: "8px 10px" } },
+            { style: Object.assign({}, insetBoxStyle, { padding: "8px 10px" }) },
             e(
               "div",
               { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" } },
-              e("span", { style: { fontSize: "10px", color: "#9ca3af", fontWeight: 700 } }, "OP ID / IDEMPOTENCY KEY"),
+              e("span", { style: { fontSize: "10px", color: "var(--color-muted-foreground, #9ca3af)", fontWeight: 700 } }, "OP ID / IDEMPOTENCY KEY"),
               e(
                 "button",
                 {
@@ -464,12 +484,12 @@
                 copiedKey === "op" ? "Copied" : "Copy"
               )
             ),
-            e("div", { style: { fontFamily: "monospace", fontSize: "11px", wordBreak: "break-all" } }, idempKey)
+            e("div", { style: { fontFamily: MONO_FONT, fontSize: "11px", wordBreak: "break-all" } }, idempKey)
           )
         ),
         e(
           "div",
-          { style: { backgroundColor: "#0b1220", border: "1px solid #1f293d", borderRadius: "6px", padding: "10px" } },
+          { style: Object.assign({}, insetBoxStyle, { padding: "10px" }) },
           e(
             "div",
             { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" } },
@@ -478,24 +498,65 @@
           ),
           e(
             "div",
-            { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", fontFamily: "monospace", fontSize: "11px" } },
-            e("div", { style: { padding: "6px", backgroundColor: "#111827", borderRadius: "4px", wordBreak: "break-all" } }, "pre_fp: " + (fp.pre ? formatJson(fp.pre) : "—")),
-            e("div", { style: { padding: "6px", backgroundColor: "#111827", borderRadius: "4px", wordBreak: "break-all" } }, "post_fp: " + (fp.post ? formatJson(fp.post) : "—"))
+            { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", fontFamily: MONO_FONT, fontSize: "11px" } },
+            e(
+              "div",
+              {
+                style: {
+                  padding: "6px",
+                  backgroundColor: "var(--color-card, #111827)",
+                  border: "1px solid var(--color-border, #1f293d)",
+                  borderRadius: "4px",
+                  wordBreak: "break-all"
+                }
+              },
+              "pre_fp: " + (fp.pre ? formatJson(fp.pre) : "—")
+            ),
+            e(
+              "div",
+              {
+                style: {
+                  padding: "6px",
+                  backgroundColor: "var(--color-card, #111827)",
+                  border: "1px solid var(--color-border, #1f293d)",
+                  borderRadius: "4px",
+                  wordBreak: "break-all"
+                }
+              },
+              "post_fp: " + (fp.post ? formatJson(fp.post) : "—")
+            )
           )
         ),
         e(
           "div",
-          { style: { backgroundColor: "#0b1220", border: "1px solid #1f293d", borderRadius: "6px", padding: "10px" } },
-          e("div", { style: { fontSize: "11px", fontWeight: 600, color: "#9ca3af", marginBottom: "4px" } }, "Redacted Arguments"),
-          e("pre", { style: { margin: 0, fontSize: "11px", whiteSpace: "pre-wrap", wordBreak: "break-word" } }, formatJson(argsPayload))
+          { style: Object.assign({}, insetBoxStyle, { padding: "10px" }) },
+          e("div", { style: { fontSize: "11px", fontWeight: 600, color: "var(--color-muted-foreground, #9ca3af)", marginBottom: "4px" } }, "Redacted Arguments"),
+          e(
+            "pre",
+            { style: { margin: 0, fontFamily: MONO_FONT, fontSize: "11px", whiteSpace: "pre-wrap", wordBreak: "break-word" } },
+            formatJson(argsPayload)
+          )
         ),
         e(
           "div",
-          { style: { backgroundColor: "#0b1220", border: "1px solid #1f293d", borderRadius: "6px", padding: "10px" } },
-          e("div", { style: { fontSize: "11px", fontWeight: 600, color: "#9ca3af", marginBottom: "4px" } }, selectedEvent.error ? "Error Outcome" : "Result Outcome"),
+          { style: Object.assign({}, insetBoxStyle, { padding: "10px" }) },
+          e(
+            "div",
+            { style: { fontSize: "11px", fontWeight: 600, color: "var(--color-muted-foreground, #9ca3af)", marginBottom: "4px" } },
+            selectedEvent.error ? "Error Outcome" : "Result Outcome"
+          ),
           e(
             "pre",
-            { style: { margin: 0, fontSize: "11px", whiteSpace: "pre-wrap", wordBreak: "break-word", color: selectedEvent.error ? "#fca5a5" : "#e5e7eb" } },
+            {
+              style: {
+                margin: 0,
+                fontFamily: MONO_FONT,
+                fontSize: "11px",
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                color: selectedEvent.error ? "var(--color-destructive, #fca5a5)" : "var(--color-card-foreground, #e5e7eb)"
+              }
+            },
             selectedEvent.error ? String(selectedEvent.error) : formatJson(resultPayload)
           )
         )
@@ -511,7 +572,15 @@
         e(
           "div",
           { style: { display: "flex", alignItems: "center", gap: "10px" } },
-          e("span", { style: { width: "10px", height: "10px", borderRadius: "50%", backgroundColor: guardOn ? "#10b981" : "#ef4444", display: "inline-block" } }),
+          e("span", {
+            style: {
+              width: "10px",
+              height: "10px",
+              borderRadius: "50%",
+              backgroundColor: guardOn ? "var(--color-success, #10b981)" : "var(--color-destructive, #ef4444)",
+              display: "inline-block"
+            }
+          }),
           e("span", { style: { fontSize: "18px", fontWeight: 700 } }, "Phoenix Flight Recorder v2.0.0")
         ),
         e(
@@ -523,7 +592,11 @@
             {
               type: "button",
               disabled: wtState.running,
-              style: Object.assign({}, btnStyle, { backgroundColor: "#2563eb", borderColor: "#3b82f6", color: "#ffffff" }),
+              style: Object.assign({}, btnStyle, {
+                backgroundColor: "var(--color-primary, #2563eb)",
+                borderColor: "var(--color-primary, #3b82f6)",
+                color: "var(--color-primary-foreground, #ffffff)"
+              }),
               onClick: runWindTunnel
             },
             wtState.running ? "Running Crash-Replay Suite..." : "Run Crash-Replay Suite (ddmin)"
@@ -540,11 +613,23 @@
             marginBottom: "16px"
           }
         },
-        makeCard("Protected Ops", stats.committed !== undefined ? stats.committed : 0, "#10b981"),
-        makeCard("In-Flight WAL", stats.in_flight !== undefined ? stats.in_flight : 0, stats.in_flight > 0 ? "#f59e0b" : "#9ca3af"),
-        makeCard("Dupes Prevented", stats.deduped !== undefined ? stats.deduped : 0, "#06b6d4"),
-        makeCard("Recovered Landed", recoveredCount, recoveredCount > 0 ? "#f59e0b" : "#9ca3af"),
-        makeCard("Guard Status", guardOn ? "ON" : "OFF", guardOn ? "#10b981" : "#ef4444")
+        makeCard("Protected Ops", stats.committed !== undefined ? stats.committed : 0, "var(--color-success, #10b981)"),
+        makeCard(
+          "In-Flight WAL",
+          stats.in_flight !== undefined ? stats.in_flight : 0,
+          stats.in_flight > 0 ? "var(--color-warning, #f59e0b)" : "var(--color-muted-foreground, #9ca3af)"
+        ),
+        makeCard("Dupes Prevented", stats.deduped !== undefined ? stats.deduped : 0, "var(--color-primary, #06b6d4)"),
+        makeCard(
+          "Recovered Landed",
+          recoveredCount,
+          recoveredCount > 0 ? "var(--color-warning, #f59e0b)" : "var(--color-muted-foreground, #9ca3af)"
+        ),
+        makeCard(
+          "Guard Status",
+          guardOn ? "ON" : "OFF",
+          guardOn ? "var(--color-success, #10b981)" : "var(--color-destructive, #ef4444)"
+        )
       ),
       e(
         "div",
@@ -559,15 +644,12 @@
         e(
           "div",
           {
-            style: {
-              backgroundColor: "var(--ui-surface, #111827)",
-              border: "1px solid var(--ui-border, #1f293d)",
-              borderRadius: "8px",
+            style: Object.assign({}, cardBoxStyle, {
               padding: "12px",
               display: "flex",
               flexDirection: "column",
               gap: "8px"
-            }
+            })
           },
           e("input", {
             type: "text",
@@ -579,9 +661,9 @@
               boxSizing: "border-box",
               padding: "7px 10px",
               borderRadius: "6px",
-              border: "1px solid #374151",
-              backgroundColor: "#0b1220",
-              color: "#f3f4f6",
+              border: "1px solid var(--color-input, #374151)",
+              backgroundColor: "var(--background-base, #0b1220)",
+              color: "var(--color-card-foreground, #f3f4f6)",
               fontSize: "12px"
             }
           }),
@@ -599,8 +681,9 @@
                   style: Object.assign({}, btnStyle, {
                     padding: "3px 8px",
                     fontSize: "11px",
-                    backgroundColor: active ? "#2563eb" : "#1f293d",
-                    color: active ? "#ffffff" : "#9ca3af"
+                    backgroundColor: active ? "var(--color-primary, #2563eb)" : "var(--color-secondary, #1f293d)",
+                    borderColor: active ? "var(--color-primary, #3b82f6)" : "var(--color-border, #374151)",
+                    color: active ? "var(--color-primary-foreground, #ffffff)" : "var(--color-muted-foreground, #9ca3af)"
                   })
                 },
                 st
@@ -611,7 +694,7 @@
             "div",
             { style: { maxHeight: "360px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "6px" } },
             filteredEvents.length === 0
-              ? e("div", { style: { padding: "20px", textAlign: "center", color: "#9ca3af", fontSize: "12px" } }, "No matching WAL events")
+              ? e("div", { style: { padding: "20px", textAlign: "center", color: "var(--color-muted-foreground, #9ca3af)", fontSize: "12px" } }, "No matching WAL events")
               : filteredEvents.map(function (ev, idx) {
                   var key = ev.attempt_id || ev.op_id || String(idx);
                   var isSelected = selectedEvent && (selectedEvent.attempt_id || selectedEvent.op_id) === key;
@@ -628,20 +711,20 @@
                         padding: "8px 10px",
                         borderRadius: "6px",
                         cursor: "pointer",
-                        backgroundColor: isSelected ? "#1e293b" : "#0b1220",
-                        border: "1px solid " + (isSelected ? "#3b82f6" : "#1f293d"),
-                        color: "#f3f4f6"
+                        backgroundColor: isSelected ? "var(--color-accent, #1e293b)" : "var(--background-base, #0b1220)",
+                        border: "1px solid " + (isSelected ? "var(--color-primary, #3b82f6)" : "var(--color-border, #1f293d)"),
+                        color: "var(--color-card-foreground, #f3f4f6)"
                       }
                     },
                     e(
                       "div",
                       { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "6px" } },
-                      e("span", { style: { fontFamily: "monospace", fontSize: "12px", fontWeight: 600 } }, ev.tool || ev.tool_name || "tool"),
+                      e("span", { style: { fontFamily: MONO_FONT, fontSize: "12px", fontWeight: 600 } }, ev.tool || ev.tool_name || "tool"),
                       e("span", { style: { fontSize: "10px", color: statusColor(ev.status), fontWeight: 700 } }, ev.status || "unknown")
                     ),
                     e(
                       "div",
-                      { style: { display: "flex", justifyContent: "space-between", fontSize: "11px", color: "#9ca3af", marginTop: "3px" } },
+                      { style: { display: "flex", justifyContent: "space-between", fontSize: "11px", color: "var(--color-muted-foreground, #9ca3af)", marginTop: "3px" } },
                       e("span", null, formatRelativeTime(ev.ts_done || ev.ts_intent || ev.timestamp)),
                       latency !== null ? e("span", null, latency + "ms") : null
                     )
@@ -651,34 +734,26 @@
         ),
         e(
           "div",
-          {
-            style: {
-              backgroundColor: "var(--ui-surface, #111827)",
-              border: "1px solid var(--ui-border, #1f293d)",
-              borderRadius: "8px",
-              minHeight: "360px"
-            }
-          },
+          { style: Object.assign({}, cardBoxStyle, { minHeight: "360px" }) },
           renderInspector()
         )
       ),
       e(
         "div",
-        {
-          style: {
-            backgroundColor: "var(--ui-surface, #111827)",
-            border: "1px solid var(--ui-border, #1f293d)",
-            borderRadius: "8px",
-            padding: "14px"
-          }
-        },
+        { style: Object.assign({}, cardBoxStyle, { padding: "14px" }) },
         e(
           "div",
           { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" } },
           e("strong", { style: { fontSize: "13px" } }, "Wind Tunnel Lab (Zeller ddmin)"),
-          wtReport ? e("span", { style: { fontSize: "12px", fontWeight: 700, color: wtReport.passed ? "#10b981" : "#ef4444" } }, wtReport.passed ? "PASS" : "FAIL") : null
+          wtReport
+            ? e(
+                "span",
+                { style: { fontSize: "12px", fontWeight: 700, color: wtReport.passed ? "var(--color-success, #10b981)" : "var(--color-destructive, #ef4444)" } },
+                wtReport.passed ? "PASS" : "FAIL"
+              )
+            : null
         ),
-        wtState.error ? e("div", { style: { color: "#fca5a5", fontSize: "12px", marginBottom: "8px" } }, wtState.error) : null,
+        wtState.error ? e("div", { style: { color: "var(--color-destructive, #fca5a5)", fontSize: "12px", marginBottom: "8px" } }, wtState.error) : null,
         wtChecks.length > 0
           ? e(
               "div",
@@ -688,25 +763,34 @@
                   "div",
                   {
                     key: chk.name || idx,
-                    style: {
+                    style: Object.assign({}, insetBoxStyle, {
                       display: "flex",
                       justifyContent: "space-between",
                       alignItems: "center",
                       padding: "8px 10px",
-                      backgroundColor: "#0b1220",
-                      border: "1px solid #1f293d",
-                      borderRadius: "6px",
                       fontSize: "12px"
-                    }
+                    })
                   },
                   e("span", null, chk.name || chk.id || "Check " + (idx + 1)),
-                  e("span", { style: { color: chk.passed ? "#10b981" : "#ef4444", fontWeight: 700 } }, chk.passed ? "PASS" : "FAIL")
+                  e(
+                    "span",
+                    { style: { color: chk.passed ? "var(--color-success, #10b981)" : "var(--color-destructive, #ef4444)", fontWeight: 700 } },
+                    chk.passed ? "PASS" : "FAIL"
+                  )
                 );
               })
             )
-          : e("div", { style: { color: "#9ca3af", fontSize: "12px" } }, "Click \"Run Crash-Replay Suite (ddmin)\" to execute deterministic fault injection and trace minimization."),
+          : e(
+              "div",
+              { style: { color: "var(--color-muted-foreground, #9ca3af)", fontSize: "12px" } },
+              "Click \"Run Crash-Replay Suite (ddmin)\" to execute deterministic fault injection and trace minimization."
+            ),
         minimized
-          ? e("pre", { style: { marginTop: "10px", padding: "10px", backgroundColor: "#0b1220", borderRadius: "6px", fontSize: "11px", whiteSpace: "pre-wrap" } }, formatJson(minimized))
+          ? e(
+              "pre",
+              { style: Object.assign({}, insetBoxStyle, { marginTop: "10px", padding: "10px", fontFamily: MONO_FONT, fontSize: "11px", whiteSpace: "pre-wrap" }) },
+              formatJson(minimized)
+            )
           : null
       )
     );

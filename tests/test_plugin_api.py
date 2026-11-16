@@ -164,6 +164,22 @@ class TestPluginApiEndpoints(unittest.TestCase):
         mock_journal.timeline.assert_called_once_with(limit=25, status="ok", query="write")
         self.assertEqual(res, {"status": "ok", "items": [{"attempt_id": "att-x", "status": "ok"}], "count": 1})
 
+    def test_get_timeline_clamps_limit_bounds(self) -> None:
+        mock_journal = MagicMock()
+        mock_journal.timeline.return_value = []
+        mock_app = MagicMock()
+        mock_app._journal.return_value = mock_journal
+
+        with patch.object(plugin_api, "_get_app", return_value=mock_app):
+            plugin_api.get_timeline(limit=99999)
+            self.assertEqual(mock_journal.timeline.call_args.kwargs["limit"], 500)
+
+            plugin_api.get_timeline(limit=-5)
+            self.assertEqual(mock_journal.timeline.call_args.kwargs["limit"], 0)
+
+            plugin_api.get_timeline(limit="not-a-number")  # type: ignore[arg-type]
+            self.assertEqual(mock_journal.timeline.call_args.kwargs["limit"], 50)
+
     def test_post_windtunnel_runs_suite_and_persists_meta(self) -> None:
         fake_report = {
             "passed": True,

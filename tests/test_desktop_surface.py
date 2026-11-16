@@ -144,6 +144,41 @@ class TestDesktopSurface(unittest.TestCase):
         ):
             self.assertIn(token, src, f"Expected real Hermes Desktop token {token} in desktop/plugin.js")
 
+    def test_desktop_plugin_guard_defaults_to_false(self) -> None:
+        src = DESKTOP_PLUGIN.read_text(encoding="utf-8")
+        guard_lines = [line for line in src.splitlines() if "guard_enabled" in line and "guardOn" in line]
+        self.assertEqual(len(guard_lines), 3, f"Expected 3 guardOn initializers in desktop/plugin.js, got {guard_lines}")
+        for line in guard_lines:
+            self.assertTrue(
+                line.rstrip().endswith(": false;"),
+                f"Expected guard_enabled fallback to default to false: {line}",
+            )
+
+    def test_dashboard_bundle_uses_valid_theme_tokens_and_guard_default(self) -> None:
+        src = DASHBOARD_BUNDLE.read_text(encoding="utf-8")
+        self.assertIsNone(
+            re.search(r"--ui-", src),
+            "Dead --ui-* CSS token found in dashboard/dist/index.js",
+        )
+        for token in (
+            "--background-base",
+            "--color-card",
+            "--color-card-foreground",
+            "--color-secondary",
+            "--color-border",
+            "--color-muted-foreground",
+            "--color-primary",
+            "--color-success",
+            "--color-warning",
+            "--color-destructive",
+            "--theme-font-sans",
+            "--theme-font-mono",
+        ):
+            self.assertIn(token, src, f"Expected real Hermes Web Dashboard token {token} in dashboard/dist/index.js")
+        guard_lines = [line for line in src.splitlines() if "guard_enabled" in line and "guardOn" in line]
+        self.assertEqual(len(guard_lines), 1)
+        self.assertIn(": false);", guard_lines[0])
+
 
 if __name__ == "__main__":
     unittest.main()
