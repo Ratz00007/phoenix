@@ -1,21 +1,17 @@
-# Phoenix v0.3.0 — Submission Handoff (Do these in order)
+# Phoenix v2.0.0 — Submission Handoff (Do these in order)
 
-Deadline: **Wed 11 Nov 2026, 5:00 PM ET = 22:00 UTC** (10:00 PM your time).  
-Target: everything completed by **Tue 10 Nov**; Wed is buffer only.
+## 0. Catalog Metadata Notes
 
-## 0. Replace Placeholders
+- `submit/phoenix.yaml`: `repo: https://github.com/Ratz00007/phoenix`, `maintainer: Ratz00007`. Note: the authoritative pinned 40-char commit `sha:` is updated directly in PR `NousResearch/hermes-agent#154408` (`plugin-catalog/phoenix.yaml`) after the final push to `main`.
+- `submit/PR-description.md`: Verified `v2.0.0` capabilities and `110/110` unit test receipts.
 
-- `submit/phoenix.yaml`: `repo: https://github.com/Ratz00007/phoenix`, `maintainer: Ratz00007`, and the 40-char `sha`.
-- `submit/PR-description.md` & `submit/SUBMISSION_CHECKLIST.md`: Pinned 40-char commit SHA.
-
-## 1. Create the Repo and Push
+## 1. Repository Commit & Push
 
 ```bash
-cd "C:\Users\ratin\Downloads\Hermes plugn compition\phoenix"
-git init -b main
+cd phoenix
 git add .
-git commit -m "feat: Phoenix v0.3.0 transactional WAL crash journal & ReplayLab ddmin wind tunnel"
-gh repo create Ratz00007/phoenix --public --description "Transactional SQLite WAL crash-recovery journal, idempotency guard & ReplayLab ddmin wind tunnel for Hermes Agent" --source=. --remote=origin --push
+git commit -m "feat: Phoenix v2.0.0 transactional WAL crash journal, Desktop SDK & ReplayLab ddmin wind tunnel"
+git push origin main
 ```
 
 ## 2. Re-verify from a Clean Clone (The Receipts)

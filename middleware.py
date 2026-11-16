@@ -162,6 +162,16 @@ def make_middleware(
 
                 # If require_committed_state is True, target MUST be fully committed on disk!
                 if not require_committed_state or target_committed:
+                    if cached is not None or (prev_fp is not None and target_committed):
+                        dedup_fp = None
+                        try:
+                            dedup_fp = target_fingerprint(tool, args, state_probe=state_probe)
+                            if isinstance(dedup_fp, dict) and state_probe is not None:
+                                dedup_fp["tool"] = tool
+                                dedup_fp["args"] = args
+                        except Exception:
+                            dedup_fp = None
+
                     if cached is not None:
                         _, cached_json = cached
                         try:
@@ -170,9 +180,23 @@ def make_middleware(
                             cached_val = cached_json
                         try:
                             app._journal().record_intent(
-                                attempt, key, tool, args, session_id, turn_id, tool_call_id
+                                attempt,
+                                key,
+                                tool,
+                                args,
+                                session_id,
+                                turn_id,
+                                tool_call_id,
+                                pre_fp=dedup_fp,
+                                idem_key=explicit_key or key,
                             )
-                            app._journal().record_outcome(attempt, key, "deduped", result=cached_val)
+                            app._journal().record_outcome(
+                                attempt,
+                                key,
+                                "deduped",
+                                result=cached_val,
+                                post_fp=dedup_fp,
+                            )
                         except Exception:
                             pass
                         return cached_val
@@ -187,9 +211,23 @@ def make_middleware(
                         }
                         try:
                             app._journal().record_intent(
-                                attempt, key, tool, args, session_id, turn_id, tool_call_id
+                                attempt,
+                                key,
+                                tool,
+                                args,
+                                session_id,
+                                turn_id,
+                                tool_call_id,
+                                pre_fp=dedup_fp,
+                                idem_key=explicit_key or key,
                             )
-                            app._journal().record_outcome(attempt, key, "deduped", result=dedup_val)
+                            app._journal().record_outcome(
+                                attempt,
+                                key,
+                                "deduped",
+                                result=dedup_val,
+                                post_fp=dedup_fp,
+                            )
                         except Exception:
                             pass
                         return dedup_val

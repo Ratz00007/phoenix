@@ -289,10 +289,20 @@ class Journal:
             )
             if post_fp is not None:
                 post_fp_json = json.dumps(post_fp, default=str)
-                c.execute(
+                cur = c.execute(
                     "UPDATE fingerprints SET post_fp_json=? WHERE attempt_id=?",
                     (post_fp_json, attempt_id),
                 )
+                if cur.rowcount == 0:
+                    row = c.execute(
+                        "SELECT op_id, pre_fp_json FROM ops WHERE attempt_id=?",
+                        (attempt_id,),
+                    ).fetchone()
+                    if row:
+                        c.execute(
+                            "INSERT OR IGNORE INTO fingerprints (attempt_id, op_id, pre_fp_json, post_fp_json, idem_key) VALUES (?,?,?,?,?)",
+                            (attempt_id, row[0], row[1], post_fp_json, row[0]),
+                        )
             self._commit(c)
 
     def clear_in_flight(self, reason: str = "cleared") -> None:

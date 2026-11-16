@@ -12,7 +12,7 @@
   <a href="https://github.com/NousResearch/hermes-agent/pull/154408"><img src="https://img.shields.io/badge/Catalog%20PR-%23154408-orange.svg" alt="PR #154408"></a>
   <a href="https://x.com/GreyPolitiynxa"><img src="https://img.shields.io/badge/Demo%20Film-Watch%20on%20X-black.svg" alt="Demo Film on X"></a>
   <img src="https://img.shields.io/badge/hermes%20validate-passed-brightgreen.svg" alt="Hermes Validate">
-  <img src="https://img.shields.io/badge/tests-106%2F106%20passed-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/tests-110%2F110%20passed-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/dependencies-0%20(stdlib%20only)-blue.svg" alt="Dependencies">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License"></a>
 </p>
@@ -113,7 +113,7 @@ hermes plugins install phoenix
 # 2. Run the 4-Act crash-and-recover + Zeller ddmin demo (< 1s)
 python demo.py
 
-# 3. Run the complete evaluation scorecard (106 unit tests, doctor checks, wind tunnel, chaos engine)
+# 3. Run the complete evaluation scorecard (110 unit tests, doctor checks, wind tunnel, chaos engine)
 python judge_eval.py
 
 # 4. Run official Hermes plugin validator

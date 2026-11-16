@@ -259,6 +259,103 @@ class TestPhoenixStatsTool(unittest.TestCase):
         self.assertEqual(row["post_fp"]["size"], len("phoenix-v2"))
         self.assertIsNotNone(row["post_fp"]["sha256"])
 
+    def test_mark_resumed_inserts_missing_fingerprint_row(self):
+        j = self.app._journal()
+        j.record_intent("att-miss", "op-miss", "write_file", {"path": str(self.tmpdir / "m.txt")})
+        with j._lock:
+            c = j._connect()
+            c.execute("DELETE FROM fingerprints WHERE attempt_id=?", ("att-miss",))
+            j._commit(c)
+
+        post_fp = {"path": str(self.tmpdir / "m.txt"), "exists": True, "sha256": "abc"}
+        j.mark_resumed("att-miss", result={"recovered": "already_landed"}, status="recovered_landed", post_fp=post_fp)
+        rows = j.timeline(limit=5)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["status"], "recovered_landed")
+        self.assertEqual(rows[0]["post_fp"], post_fp)
+
+    def test_system_prompt_alert_persists_post_fp_on_recovered_landed(self):
+        target = self.tmpdir / "landed.txt"
+        pre_fp = phx.keys.target_fingerprint("write_file", {"path": str(target), "content": "ok"})
+        j = self.app._journal()
+        j.record_intent(
+            "att-alert",
+            "op-alert",
+            "write_file",
+            {"path": str(target), "content": "ok"},
+            pre_fp=pre_fp,
+            idem_key="op-alert",
+        )
+        target.write_text("ok", encoding="utf-8")
+
+        alert = self.app.system_prompt_alert()
+        self.assertIn("recovered_landed", alert)
+
+        rows = j.timeline(limit=5)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["status"], "recovered_landed")
+        self.assertIsNotNone(rows[0]["post_fp"])
+        self.assertTrue(rows[0]["post_fp"]["exists"])
+        self.assertIsNotNone(rows[0]["post_fp"]["sha256"])
+
+    def test_middleware_deduped_attempts_record_idem_key_and_fingerprints(self):
+        self.app.set_guard(True)
+        mw = phx.middleware.make_middleware(lambda: self.app)
+        target = self.tmpdir / "dedup.txt"
+        calls = []
+
+        def write_next(args):
+            calls.append(args)
+            Path(args["path"]).write_text(args["content"], encoding="utf-8")
+            return {"ok": True, "path": args["path"]}
+
+        res1 = mw(
+            tool_name="write_file",
+            args={"path": str(target), "content": "once"},
+            session_id="sess-dedup",
+            next_call=write_next,
+        )
+        res2 = mw(
+            tool_name="write_file",
+            args={"path": str(target), "content": "once"},
+            session_id="sess-dedup",
+            next_call=write_next,
+        )
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(res1, res2)
+
+        # Also test timeout-after-commit dedup branch (prior attempt in 'intent' but disk mutated)
+        target2 = self.tmpdir / "timeout-landed.txt"
+        args2 = {"path": str(target2), "content": "landed-before-crash"}
+        key2 = phx.keys.op_id("write_file", args2)
+        pre_fp2 = phx.keys.target_fingerprint("write_file", args2)
+        self.app._journal().record_intent(
+            "att-timeout",
+            key2,
+            "write_file",
+            args2,
+            session_id="sess-dedup",
+            pre_fp=pre_fp2,
+            idem_key=key2,
+        )
+        target2.write_text("landed-before-crash", encoding="utf-8")
+        res3 = mw(
+            tool_name="write_file",
+            args=args2,
+            session_id="sess-dedup",
+            next_call=write_next,
+        )
+        self.assertIsInstance(res3, dict)
+        self.assertTrue(res3["deduped"])
+
+        deduped_rows = self.app._journal().timeline(limit=10, status="deduped")
+        self.assertEqual(len(deduped_rows), 2)
+        for row in deduped_rows:
+            self.assertIsNotNone(row["idem_key"])
+            self.assertIsNotNone(row["pre_fp"])
+            self.assertIsNotNone(row["post_fp"])
+            self.assertEqual(row["pre_fp"], row["post_fp"])
+
 
 if __name__ == "__main__":
     unittest.main()

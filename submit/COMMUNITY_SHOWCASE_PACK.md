@@ -1,11 +1,9 @@
 # Phoenix — Community Showcase & Judge Evaluation Pack
-> Official submission materials for the **Nous Research Hermes Agent Hackathon**  
-> Plugin: **`phoenix` v0.3.1 (Championship Edition)** — The Black Box Flight Recorder for Hermes Agents  
+> Official submission materials for the **Nous Research Hermes Agent Plugin Catalog**  
+> Plugin: **`phoenix` v2.0.0** — The Exactly-Once Trust Layer for Autonomous Agents  
 > Repository: [https://github.com/Ratz00007/phoenix](https://github.com/Ratz00007/phoenix)  
-> Catalog PR: [NousResearch/hermes-agent #152278](https://github.com/NousResearch/hermes-agent/pull/152278)  
-> Pinned SHA: `75326501b1f95da6afd6b3d29afd9d592a561bd5`  
-> Dependencies: **0 external dependencies** (Python 3.11+ stdlib only)  
-> Demo Video: [90-Second Walkthrough (1080p 60fps)](https://github.com/Ratz00007/phoenix/releases/tag/v0.3.1)
+> Catalog PR: [NousResearch/hermes-agent #154408](https://github.com/NousResearch/hermes-agent/pull/154408)  
+> Dependencies: **0 external dependencies** (Python 3.11+ stdlib only)
 
 ---
 
@@ -26,7 +24,7 @@
 
 ***
 
-🔥 **PROJECT SHOWCASE: Phoenix v0.3.1 — The Black Box Flight Recorder for Hermes Agents**
+🔥 **PROJECT SHOWCASE: Phoenix v2.0.0 — The Exactly-Once Trust Layer for Hermes Agents**
 
 > **"Kill your agent mid-write. It recovers having executed exactly once."**  
 > *Zero duplicate writes. Zero lost operations. Zero LLM calls during recovery.*
@@ -42,12 +40,12 @@ If it dies *after* a tool mutation lands on disk or commits to an API, but *befo
 
 ### 🛡️ What Phoenix Does
 Phoenix acts as an indestructible flight recorder:
-1. 📝 **SQLite WAL Intent Journaling**: Intercepts every tool call before execution, recording canonical `op_id` and pre-execution SHA-256 target fingerprints in a local, durable WAL ledger.
+1. 📝 **SQLite WAL Intent Journaling**: Intercepts every tool call before execution, recording canonical `op_id` and pre-execution SHA-256 target fingerprints in a local, durable WAL ledger (`mode 0600`).
 2. 🚨 **Turn-1 Autonomous Crash Detection**: Native `register_system_prompt_section` hook injects a zero-token crash alert into Turn 1 upon reboot. The agent immediately knows which operations were in flight.
 3. 🎯 **Extended State Fingerprinting**: Checks disk state on boot (`write_file`, `edit_file`, unified `patch`, shell redirects). If a file already mutated on disk before the crash, Phoenix auto-reconciles it as `recovered_landed` with **0 duplicate writes** and **0 tool re-dispatches**!
-4. ⚡ **Zero-LLM Forward Recovery**: `/recover` replays exact deterministic bytecode from the WAL ledger. No re-reasoning, no prompt variance, no token cost.
-5. 🌪️ **ReplayLab Wind Tunnel + Zeller `ddmin`**: Includes an offline fault-injection engine that shrinks multi-mutation failure traces to a 1-step minimal counterexample in `<2ms` with 0 LLM calls (5/5 RED unguarded ➔ 0/5 RED guarded).
-6. 📊 **Hermes Web Dashboard & Forensic HTML**: Bundles native `dashboard/manifest.json` and zero-dependency dark-mode HTML reports.
+4. ⚡ **Zero-LLM Forward Recovery**: Owner-only `/recover` replays exact deterministic bytecode from the WAL ledger. No re-reasoning, no prompt variance, no token cost.
+5. 🌪️ **ReplayLab Wind Tunnel + Zeller `ddmin` + Chaos Engine**: Includes an offline fault-injection engine that shrinks multi-mutation failure traces to a 1-step minimal counterexample in `<2ms` with 0 LLM calls and verifies 12/12 deterministic chaos trials.
+6. 📊 **Hermes Desktop SDK, Web Dashboard & Forensic HTML**: Bundles `@hermes/plugin-sdk` Desktop surface, native `dashboard/` extension, and zero-dependency dark-mode HTML reports.
 
 ### 🧪 5-Second Judge & Community Verification
 Zero dependencies. Zero API keys. Python 3.11+ stdlib only:
@@ -55,11 +53,10 @@ Zero dependencies. Zero API keys. Python 3.11+ stdlib only:
 git clone https://github.com/Ratz00007/phoenix.git && cd phoenix
 python judge_eval.py
 ```
-*(Runs 67 unit tests, full Hermes plugin doctor checks, and the developer wind tunnel in ~2.5s with 100% green PASS!)*
+*(Runs 110 unit tests, full Hermes plugin doctor checks, chaos trials, and the developer wind tunnel in ~2.5s with 100% green PASS!)*
 
 - 📦 **GitHub Repository**: https://github.com/Ratz00007/phoenix
-- 🔀 **Catalog PR**: https://github.com/NousResearch/hermes-agent/pull/152278
-- 🎥 **90-Second Demo Video**: Available in repo releases & README!
+- 🔀 **Catalog PR**: https://github.com/NousResearch/hermes-agent/pull/154408
 
 Feedback and edge-case attacks welcome! Let's make autonomous Hermes agents truly unbreakable. 🚀
 
@@ -119,12 +116,12 @@ Guarded: 0/5 failures. (7/8)
 
 **Tweet 8 (CTA):**  
 Phoenix is 100% Python standard library.  
-0 pip dependencies. 0 API keys. 67/67 tests passing.  
+0 pip dependencies. 0 API keys. 110/110 tests passing.  
 
 Clone and test it in 1 command:  
 `git clone https://github.com/Ratz00007/phoenix && cd phoenix && python judge_eval.py`  
 
-Catalog PR #152278 is live on @NousResearch Hermes!  
+Catalog PR #154408 is live on @NousResearch Hermes!  
 Repo: https://github.com/Ratz00007/phoenix (8/8)
 
 ---
@@ -184,7 +181,7 @@ cd phoenix
 python judge_eval.py
 ```  
 Verified against Hermes v0.21.6 catalog admission rules.  
-PR #152278 on @NousResearch!  
+PR #154408 on @NousResearch!  
 Code: https://github.com/Ratz00007/phoenix (7/7)
 
 ---
@@ -234,7 +231,7 @@ Use `/rollback` when an agent's reasoning was wrong and you want a do-over.
 Use Phoenix when your infrastructure failed and you need exactly-once execution guarantees.  
 
 Try it: `python judge_eval.py`  
-Catalog PR #152278 for @NousResearch Hermes Agent!  
+Catalog PR #154408 for @NousResearch Hermes Agent!  
 https://github.com/Ratz00007/phoenix (6/6)
 
 ---
@@ -252,28 +249,28 @@ python judge_eval.py
 **Expected Terminal Output:**
 ```text
 ==================================================================================
-               PHOENIX v0.3.1 — OFFICIAL JUDGE EVALUATION SCORECARD               
+               PHOENIX v2.0.0 — OFFICIAL JUDGE EVALUATION SCORECARD               
 ==================================================================================
 
   [PASS] Unit Test Suite:
-         67/67 tests passing (0 failures, 0 errors) in 2.27s
+         110/110 tests passing (0 failures, 0 errors) in 2.3s
 
   [PASS] Hermes Official Plugin Doctor:
          ✓ Plugin Manifest            manifest parses (name/version/description/kind present)
-         ✓ Dashboard Manifest         dashboard/manifest.json parses valid JSON (version 0.3.0)
-         ✓ Context Registration       register(ctx) runs and registers middleware, 2 commands (/phoenix, /recover), 2 tools (phoenix_ledger, phoenix_windtunnel), and phoenix_recovery prompt section
+         ✓ Dashboard Manifest         dashboard/manifest.json parses valid JSON (version 2.0.0)
+         ✓ Context Registration       register(ctx) runs and registers middleware, 2 commands (/phoenix, /recover), 3 tools (phoenix_ledger, phoenix_stats, phoenix_windtunnel), and phoenix_recovery prompt section
          ✓ Public API Imports         imports stay on the public plugin API allow-list
          ✓ Clean Build (No Binaries)  no compiled binaries or bytecode
 
   [PASS] Developer Wind Tunnel & Zeller ddmin:
-         ✓ HERMES_DEV_TRACE (8 steps, 3 mutations) isolated to 1 step in 58.7ms
+         ✓ HERMES_DEV_TRACE (8 steps, 3 mutations) isolated to 1 step in <2ms
          ✓ Minimal counterexample isolated: write_file('dist/bundle.js') (0 LLM calls)
          ✓ Guarded Green vs Unguarded Red verified across all fault injection modes
 
 ----------------------------------------------------------------------------------
   AUDIT CATEGORY                     STANDARD / SPEC                RESULT        
 ----------------------------------------------------------------------------------
-  Unit Test Discovery                unittest discover -s tests     PASS (67/67)
+  Unit Test Discovery                unittest discover -s tests     PASS (110/110)
   Manifest & Plugin Schema           Hermes standalone spec         PASS (Valid)
   Zero Host Monkeypatching           Public plugin APIs only        PASS (100% Clean)
   Secret Redaction                   Journal sanitization regex     PASS (Enforced)
@@ -283,7 +280,7 @@ python judge_eval.py
   Zero LLM Recovery                  WAL state replay               PASS (0 Tokens Wasted)
 ==================================================================================
   FINAL VERDICT: 100% PASS — 0 FAILURES — READY FOR EVALUATION
-  Total Evaluation Time: 2.57s | Hermes Version Compatibility: >=0.21.6
+  Total Evaluation Time: ~2.5s | Hermes Version Compatibility: >=0.21.6
 ==================================================================================
 ```
 
@@ -300,7 +297,7 @@ python demo.py --html phoenix-report.html
 ```bash
 python selfcheck.py
 ```
-- Verifies manifest schema, registration surfaces, public API imports, zero binary artifacts, and 67 unit tests.
+- Verifies manifest schema, registration surfaces, public API imports, zero binary artifacts, and 110 unit tests.
 
 ---
 

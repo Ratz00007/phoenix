@@ -114,6 +114,36 @@ class TestDesktopSurface(unittest.TestCase):
         self.assertEqual(data["icon"], "Shield")
         self.assertEqual(data["tab"]["path"], "/phoenix")
 
+    def test_desktop_plugin_uses_valid_theme_tokens(self) -> None:
+        src = DESKTOP_PLUGIN.read_text(encoding="utf-8")
+        dead_token_patterns = [
+            r"--ui-surface\b",
+            r"--ui-surface-elevated\b",
+            r"--ui-surface-active\b",
+            r"--ui-bg\b",
+            r"--ui-border\b",
+            r"--ui-text(?![\w-])",
+            r"--ui-text-muted\b",
+            r"--ui-font-mono\b",
+            r"--ui-success\b",
+            r"--ui-warning\b",
+            r"--ui-danger\b",
+        ]
+        for pat in dead_token_patterns:
+            self.assertIsNone(
+                re.search(pat, src),
+                f"Dead CSS token pattern {pat!r} found in desktop/plugin.js",
+            )
+        for token in (
+            "--ui-text-primary",
+            "--ui-text-tertiary",
+            "--ui-stroke-secondary",
+            "--font-mono",
+            "--ui-accent",
+            "--chrome-action-hover",
+        ):
+            self.assertIn(token, src, f"Expected real Hermes Desktop token {token} in desktop/plugin.js")
+
 
 if __name__ == "__main__":
     unittest.main()

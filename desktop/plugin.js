@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Fragment, jsx, jsxs } from 'react/jsx-runtime';
+import { jsx, jsxs } from 'react/jsx-runtime';
 import {
   Badge,
   Button,
@@ -156,8 +156,8 @@ function normalizeEvents(timelineData, statusData) {
 function KpiCard({ label, value, color, dotTone, sublabel }) {
   return jsxs('div', {
     style: {
-      background: 'var(--ui-surface-elevated, var(--ui-surface))',
-      border: '1px solid var(--ui-border)',
+      background: 'transparent',
+      border: '1px solid var(--ui-stroke-secondary)',
       borderRadius: '10px',
       padding: '12px 14px',
       display: 'flex',
@@ -180,7 +180,7 @@ function KpiCard({ label, value, color, dotTone, sublabel }) {
               fontWeight: 600,
               textTransform: 'uppercase',
               letterSpacing: '0.06em',
-              color: 'var(--ui-text-muted)',
+              color: 'var(--ui-text-tertiary)',
             },
             children: label,
           }),
@@ -192,7 +192,7 @@ function KpiCard({ label, value, color, dotTone, sublabel }) {
           fontSize: '22px',
           fontWeight: 700,
           lineHeight: 1.1,
-          color: color || 'var(--ui-text)',
+          color: color || 'var(--ui-text-primary)',
           fontVariantNumeric: 'tabular-nums',
         },
         children: jsx(DecodeText, { text: String(value) }),
@@ -201,7 +201,7 @@ function KpiCard({ label, value, color, dotTone, sublabel }) {
         ? jsx('div', {
             style: {
               fontSize: '11px',
-              color: 'var(--ui-text-muted)',
+              color: 'var(--ui-text-tertiary)',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
@@ -255,8 +255,8 @@ function ForensicInspector({ event }) {
                 style: {
                   fontSize: '15px',
                   fontWeight: 700,
-                  color: 'var(--ui-text)',
-                  fontFamily: 'var(--ui-font-mono, monospace)',
+                  color: 'var(--ui-text-primary)',
+                  fontFamily: 'var(--font-mono, monospace)',
                 },
                 children: toolName,
               }),
@@ -272,7 +272,7 @@ function ForensicInspector({ event }) {
               alignItems: 'center',
               gap: '10px',
               fontSize: '12px',
-              color: 'var(--ui-text-muted)',
+              color: 'var(--ui-text-tertiary)',
             },
             children: [
               latency !== null ? jsx('span', { children: `${latency}ms` }) : null,
@@ -291,8 +291,8 @@ function ForensicInspector({ event }) {
         children: [
           jsxs('div', {
             style: {
-              background: 'var(--ui-surface)',
-              border: '1px solid var(--ui-border)',
+              background: 'transparent',
+              border: '1px solid var(--ui-stroke-secondary)',
               borderRadius: '8px',
               padding: '10px 12px',
             },
@@ -306,7 +306,7 @@ function ForensicInspector({ event }) {
                 },
                 children: [
                   jsx('span', {
-                    style: { fontSize: '11px', color: 'var(--ui-text-muted)', fontWeight: 600 },
+                    style: { fontSize: '11px', color: 'var(--ui-text-tertiary)', fontWeight: 600 },
                     children: 'ATTEMPT ID',
                   }),
                   jsx(CopyButton, { text: attemptId, appearance: 'inline', buttonSize: 'xs' }),
@@ -315,8 +315,8 @@ function ForensicInspector({ event }) {
               jsx('div', {
                 style: {
                   fontSize: '12px',
-                  fontFamily: 'var(--ui-font-mono, monospace)',
-                  color: 'var(--ui-text)',
+                  fontFamily: 'var(--font-mono, monospace)',
+                  color: 'var(--ui-text-primary)',
                   wordBreak: 'break-all',
                 },
                 children: attemptId,
@@ -325,8 +325,8 @@ function ForensicInspector({ event }) {
           }),
           jsxs('div', {
             style: {
-              background: 'var(--ui-surface)',
-              border: '1px solid var(--ui-border)',
+              background: 'transparent',
+              border: '1px solid var(--ui-stroke-secondary)',
               borderRadius: '8px',
               padding: '10px 12px',
             },
@@ -340,7 +340,7 @@ function ForensicInspector({ event }) {
                 },
                 children: [
                   jsx('span', {
-                    style: { fontSize: '11px', color: 'var(--ui-text-muted)', fontWeight: 600 },
+                    style: { fontSize: '11px', color: 'var(--ui-text-tertiary)', fontWeight: 600 },
                     children: 'OP ID / IDEMPOTENCY KEY',
                   }),
                   jsx(CopyButton, { text: idempKey, appearance: 'inline', buttonSize: 'xs' }),
@@ -349,8 +349,8 @@ function ForensicInspector({ event }) {
               jsx('div', {
                 style: {
                   fontSize: '12px',
-                  fontFamily: 'var(--ui-font-mono, monospace)',
-                  color: 'var(--ui-text)',
+                  fontFamily: 'var(--font-mono, monospace)',
+                  color: 'var(--ui-text-primary)',
                   wordBreak: 'break-all',
                 },
                 children: idempKey,
@@ -361,8 +361,8 @@ function ForensicInspector({ event }) {
       }),
       jsxs('div', {
         style: {
-          background: 'var(--ui-surface)',
-          border: '1px solid var(--ui-border)',
+          background: 'transparent',
+          border: '1px solid var(--ui-stroke-secondary)',
           borderRadius: '8px',
           padding: '12px',
         },
@@ -376,7 +376,7 @@ function ForensicInspector({ event }) {
             },
             children: [
               jsx('span', {
-                style: { fontSize: '12px', fontWeight: 600, color: 'var(--ui-text)' },
+                style: { fontSize: '12px', fontWeight: 600, color: 'var(--ui-text-primary)' },
                 children: 'SHA-256 State Fingerprint Diff (pre_fp vs post_fp)',
               }),
               jsx(Badge, { variant: fp.variant, children: fp.verdict }),
@@ -388,24 +388,24 @@ function ForensicInspector({ event }) {
               gridTemplateColumns: '1fr 1fr',
               gap: '8px',
               fontSize: '11px',
-              fontFamily: 'var(--ui-font-mono, monospace)',
+              fontFamily: 'var(--font-mono, monospace)',
             },
             children: [
               jsxs('div', {
                 style: {
                   padding: '8px',
                   borderRadius: '6px',
-                  background: 'var(--ui-surface-elevated, var(--ui-bg))',
-                  border: '1px solid var(--ui-border)',
+                  background: 'var(--ui-control-hover-background, transparent)',
+                  border: '1px solid var(--ui-stroke-secondary)',
                   overflowX: 'auto',
                 },
                 children: [
                   jsx('div', {
-                    style: { color: 'var(--ui-text-muted)', marginBottom: '4px' },
+                    style: { color: 'var(--ui-text-tertiary)', marginBottom: '4px' },
                     children: 'pre_fp',
                   }),
                   jsx('div', {
-                    style: { color: 'var(--ui-text)', wordBreak: 'break-all' },
+                    style: { color: 'var(--ui-text-primary)', wordBreak: 'break-all' },
                     children: fp.pre ? formatJson(fp.pre) : '—',
                   }),
                 ],
@@ -414,17 +414,17 @@ function ForensicInspector({ event }) {
                 style: {
                   padding: '8px',
                   borderRadius: '6px',
-                  background: 'var(--ui-surface-elevated, var(--ui-bg))',
-                  border: '1px solid var(--ui-border)',
+                  background: 'var(--ui-control-hover-background, transparent)',
+                  border: '1px solid var(--ui-stroke-secondary)',
                   overflowX: 'auto',
                 },
                 children: [
                   jsx('div', {
-                    style: { color: 'var(--ui-text-muted)', marginBottom: '4px' },
+                    style: { color: 'var(--ui-text-tertiary)', marginBottom: '4px' },
                     children: 'post_fp',
                   }),
                   jsx('div', {
-                    style: { color: 'var(--ui-text)', wordBreak: 'break-all' },
+                    style: { color: 'var(--ui-text-primary)', wordBreak: 'break-all' },
                     children: fp.post ? formatJson(fp.post) : '—',
                   }),
                 ],
@@ -435,14 +435,14 @@ function ForensicInspector({ event }) {
       }),
       jsxs('div', {
         style: {
-          background: 'var(--ui-surface)',
-          border: '1px solid var(--ui-border)',
+          background: 'transparent',
+          border: '1px solid var(--ui-stroke-secondary)',
           borderRadius: '8px',
           padding: '12px',
         },
         children: [
           jsx('div', {
-            style: { fontSize: '12px', fontWeight: 600, color: 'var(--ui-text)', marginBottom: '6px' },
+            style: { fontSize: '12px', fontWeight: 600, color: 'var(--ui-text-primary)', marginBottom: '6px' },
             children: 'Redacted Arguments',
           }),
           jsx('pre', {
@@ -450,8 +450,8 @@ function ForensicInspector({ event }) {
               margin: 0,
               fontSize: '12px',
               lineHeight: 1.45,
-              fontFamily: 'var(--ui-font-mono, monospace)',
-              color: 'var(--ui-text)',
+              fontFamily: 'var(--font-mono, monospace)',
+              color: 'var(--ui-text-primary)',
               whiteSpace: 'pre-wrap',
               wordBreak: 'break-word',
             },
@@ -461,14 +461,14 @@ function ForensicInspector({ event }) {
       }),
       jsxs('div', {
         style: {
-          background: 'var(--ui-surface)',
-          border: `1px solid ${event.error ? 'var(--ui-danger, var(--ui-border))' : 'var(--ui-border)'}`,
+          background: 'transparent',
+          border: `1px solid ${event.error ? 'var(--ui-accent)' : 'var(--ui-stroke-secondary)'}`,
           borderRadius: '8px',
           padding: '12px',
         },
         children: [
           jsx('div', {
-            style: { fontSize: '12px', fontWeight: 600, color: 'var(--ui-text)', marginBottom: '6px' },
+            style: { fontSize: '12px', fontWeight: 600, color: 'var(--ui-text-primary)', marginBottom: '6px' },
             children: event.error ? 'Error Outcome' : 'Result Outcome',
           }),
           jsx('pre', {
@@ -476,8 +476,8 @@ function ForensicInspector({ event }) {
               margin: 0,
               fontSize: '12px',
               lineHeight: 1.45,
-              fontFamily: 'var(--ui-font-mono, monospace)',
-              color: event.error ? 'var(--ui-danger, var(--ui-text))' : 'var(--ui-text)',
+              fontFamily: 'var(--font-mono, monospace)',
+              color: 'var(--ui-text-primary)',
               whiteSpace: 'pre-wrap',
               wordBreak: 'break-word',
             },
@@ -520,8 +520,8 @@ function WindTunnelLab({ ctx, initialReport }) {
           justifyContent: 'space-between',
           gap: '12px',
           flexWrap: 'wrap',
-          background: 'var(--ui-surface-elevated, var(--ui-surface))',
-          border: '1px solid var(--ui-border)',
+          background: 'transparent',
+          border: '1px solid var(--ui-stroke-secondary)',
           borderRadius: '10px',
           padding: '14px 16px',
         },
@@ -530,11 +530,11 @@ function WindTunnelLab({ ctx, initialReport }) {
             style: { display: 'flex', flexDirection: 'column', gap: '4px' },
             children: [
               jsx('div', {
-                style: { fontSize: '14px', fontWeight: 700, color: 'var(--ui-text)' },
+                style: { fontSize: '14px', fontWeight: 700, color: 'var(--ui-text-primary)' },
                 children: 'Deterministic Fault-Injection Wind Tunnel (Zeller ddmin)',
               }),
               jsx('div', {
-                style: { fontSize: '12px', color: 'var(--ui-text-muted)' },
+                style: { fontSize: '12px', color: 'var(--ui-text-tertiary)' },
                 children: 'Replays crash, timeout-after-commit, and 429 retry faults against the real SQLite WAL guard.',
               }),
             ],
@@ -578,7 +578,7 @@ function WindTunnelLab({ ctx, initialReport }) {
                 },
                 children: [
                   jsx('span', {
-                    style: { fontSize: '13px', fontWeight: 600, color: 'var(--ui-text)' },
+                    style: { fontSize: '13px', fontWeight: 600, color: 'var(--ui-text-primary)' },
                     children: 'Verification Checks',
                   }),
                   jsx(Badge, {
@@ -603,8 +603,8 @@ function WindTunnelLab({ ctx, initialReport }) {
                         justifyContent: 'space-between',
                         gap: '10px',
                         padding: '10px 12px',
-                        background: 'var(--ui-surface)',
-                        border: '1px solid var(--ui-border)',
+                        background: 'transparent',
+                        border: '1px solid var(--ui-stroke-secondary)',
                         borderRadius: '8px',
                       },
                       children: [
@@ -616,7 +616,7 @@ function WindTunnelLab({ ctx, initialReport }) {
                               style: {
                                 fontSize: '12px',
                                 fontWeight: 500,
-                                color: 'var(--ui-text)',
+                                color: 'var(--ui-text-primary)',
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
                                 whiteSpace: 'nowrap',
@@ -644,22 +644,22 @@ function WindTunnelLab({ ctx, initialReport }) {
       minimized
         ? jsxs('div', {
             style: {
-              background: 'var(--ui-surface)',
-              border: '1px solid var(--ui-border)',
+              background: 'transparent',
+              border: '1px solid var(--ui-stroke-secondary)',
               borderRadius: '8px',
               padding: '12px',
             },
             children: [
               jsx('div', {
-                style: { fontSize: '12px', fontWeight: 600, color: 'var(--ui-text)', marginBottom: '6px' },
+                style: { fontSize: '12px', fontWeight: 600, color: 'var(--ui-text-primary)', marginBottom: '6px' },
                 children: 'Minimized Failing Sequence (ddmin)',
               }),
               jsx('pre', {
                 style: {
                   margin: 0,
                   fontSize: '12px',
-                  fontFamily: 'var(--ui-font-mono, monospace)',
-                  color: 'var(--ui-text)',
+                  fontFamily: 'var(--font-mono, monospace)',
+                  color: 'var(--ui-text-primary)',
                   whiteSpace: 'pre-wrap',
                 },
                 children: formatJson(minimized),
@@ -778,8 +778,8 @@ function createPhoenixFlightRecorder(ctx) {
             display: 'flex',
             flexDirection: 'column',
             gap: '10px',
-            background: 'var(--ui-surface-elevated, var(--ui-surface))',
-            border: '1px solid var(--ui-border)',
+            background: 'transparent',
+            border: '1px solid var(--ui-stroke-secondary)',
             borderRadius: '10px',
             padding: '12px',
             minHeight: 0,
@@ -843,9 +843,9 @@ function createPhoenixFlightRecorder(ctx) {
                               borderRadius: '8px',
                               cursor: 'pointer',
                               background: isSelected
-                                ? 'var(--ui-surface-active, var(--ui-surface))'
+                                ? 'var(--chrome-action-hover)'
                                 : 'transparent',
-                              border: `1px solid ${isSelected ? 'var(--ui-accent, var(--ui-border))' : 'var(--ui-border)'}`,
+                              border: `1px solid ${isSelected ? 'var(--ui-accent)' : 'var(--ui-stroke-secondary)'}`,
                               display: 'flex',
                               flexDirection: 'column',
                               gap: '4px',
@@ -867,8 +867,8 @@ function createPhoenixFlightRecorder(ctx) {
                                         style: {
                                           fontSize: '12px',
                                           fontWeight: 600,
-                                          color: 'var(--ui-text)',
-                                          fontFamily: 'var(--ui-font-mono, monospace)',
+                                          color: 'var(--ui-text-primary)',
+                                          fontFamily: 'var(--font-mono, monospace)',
                                           overflow: 'hidden',
                                           textOverflow: 'ellipsis',
                                           whiteSpace: 'nowrap',
@@ -889,7 +889,7 @@ function createPhoenixFlightRecorder(ctx) {
                                   alignItems: 'center',
                                   justifyContent: 'space-between',
                                   fontSize: '11px',
-                                  color: 'var(--ui-text-muted)',
+                                  color: 'var(--ui-text-tertiary)',
                                 },
                                 children: [
                                   jsx('span', { children: relTs || 'just now' }),
@@ -907,8 +907,8 @@ function createPhoenixFlightRecorder(ctx) {
         }),
         jsx('div', {
           style: {
-            background: 'var(--ui-surface-elevated, var(--ui-surface))',
-            border: '1px solid var(--ui-border)',
+            background: 'transparent',
+            border: '1px solid var(--ui-stroke-secondary)',
             borderRadius: '10px',
             minHeight: 0,
             overflow: 'auto',
@@ -934,7 +934,7 @@ function createPhoenixFlightRecorder(ctx) {
         padding: '20px',
         height: '100%',
         boxSizing: 'border-box',
-        color: 'var(--ui-text)',
+        color: 'var(--ui-text-primary)',
       },
       children: [
         jsxs('div', {
@@ -951,7 +951,7 @@ function createPhoenixFlightRecorder(ctx) {
               children: [
                 jsx(StatusDot, { tone: guardOn ? 'good' : 'bad' }),
                 jsx('h1', {
-                  style: { margin: 0, fontSize: '18px', fontWeight: 700, color: 'var(--ui-text)' },
+                  style: { margin: 0, fontSize: '18px', fontWeight: 700, color: 'var(--ui-text-primary)' },
                   children: 'Phoenix Flight Recorder',
                 }),
                 jsx(Badge, { variant: guardOn ? 'success' : 'destructive', children: guardOn ? 'GUARD ON' : 'GUARD OFF' }),
@@ -982,35 +982,35 @@ function createPhoenixFlightRecorder(ctx) {
             jsx(KpiCard, {
               label: 'Protected Ops',
               value: stats.committed !== undefined ? stats.committed : 0,
-              color: 'var(--ui-success, var(--ui-text))',
+              color: 'var(--ui-text-primary)',
               dotTone: 'good',
               sublabel: `Total WAL rows: ${stats.total !== undefined ? stats.total : 0}`,
             }),
             jsx(KpiCard, {
               label: 'In-Flight WAL',
               value: stats.in_flight !== undefined ? stats.in_flight : 0,
-              color: (stats.in_flight || 0) > 0 ? 'var(--ui-warning, var(--ui-text))' : 'var(--ui-text)',
+              color: (stats.in_flight || 0) > 0 ? 'var(--ui-accent)' : 'var(--ui-text-primary)',
               dotTone: (stats.in_flight || 0) > 0 ? 'warn' : 'muted',
               sublabel: 'Uncommitted intent rows',
             }),
             jsx(KpiCard, {
               label: 'Dupes Prevented',
               value: stats.deduped !== undefined ? stats.deduped : 0,
-              color: 'var(--ui-accent, var(--ui-text))',
+              color: 'var(--ui-accent)',
               dotTone: 'good',
               sublabel: 'Idempotency guard hits',
             }),
             jsx(KpiCard, {
               label: 'Recovered Landed',
               value: recoveredCount,
-              color: 'var(--ui-warning, var(--ui-text))',
+              color: 'var(--ui-text-primary)',
               dotTone: recoveredCount > 0 ? 'warn' : 'muted',
               sublabel: 'Post-crash verified',
             }),
             jsx(KpiCard, {
               label: 'Guard Status',
               value: guardOn ? 'ON' : 'OFF',
-              color: guardOn ? 'var(--ui-success, var(--ui-text))' : 'var(--ui-danger, var(--ui-text))',
+              color: guardOn ? 'var(--ui-text-primary)' : 'var(--ui-text-secondary)',
               dotTone: guardOn ? 'good' : 'bad',
               sublabel: statusData.windtunnel_verdict || 'Wind Tunnel ready',
             }),
@@ -1068,7 +1068,7 @@ function createPhoenixDrawerPane(ctx) {
         flexDirection: 'column',
         gap: '10px',
         padding: '12px',
-        color: 'var(--ui-text)',
+        color: 'var(--ui-text-primary)',
       },
       children: [
         jsxs('div', {
@@ -1118,8 +1118,8 @@ function createPhoenixDrawerPane(ctx) {
                           gap: '8px',
                           padding: '6px 8px',
                           borderRadius: '6px',
-                          background: 'var(--ui-surface)',
-                          border: '1px solid var(--ui-border)',
+                          background: 'transparent',
+                          border: '1px solid var(--ui-stroke-secondary)',
                         },
                         children: [
                           jsxs('div', {
@@ -1129,7 +1129,7 @@ function createPhoenixDrawerPane(ctx) {
                               jsx('span', {
                                 style: {
                                   fontSize: '12px',
-                                  fontFamily: 'var(--ui-font-mono, monospace)',
+                                  fontFamily: 'var(--font-mono, monospace)',
                                   overflow: 'hidden',
                                   textOverflow: 'ellipsis',
                                   whiteSpace: 'nowrap',
@@ -1143,7 +1143,7 @@ function createPhoenixDrawerPane(ctx) {
                             children: [
                               relTs
                                 ? jsx('span', {
-                                    style: { fontSize: '10px', color: 'var(--ui-text-muted)' },
+                                    style: { fontSize: '10px', color: 'var(--ui-text-tertiary)' },
                                     children: relTs,
                                   })
                                 : null,
@@ -1192,7 +1192,7 @@ function createPhoenixStatusPill(ctx) {
           gap: '6px',
           background: 'transparent',
           border: 'none',
-          color: 'var(--ui-text-muted)',
+          color: 'var(--ui-text-tertiary)',
           fontSize: '12px',
           cursor: 'pointer',
           padding: '2px 6px',

@@ -447,6 +447,10 @@ class App:
             from .keys import is_target_fully_committed as _itfc
         except ImportError:
             _itfc = is_target_fully_committed
+        try:
+            from .keys import target_fingerprint as _tfp
+        except ImportError:
+            _tfp = target_fingerprint
 
         lines = [
             f"[PHOENIX WAL CRASH ALERT] {len(inflight)} interrupted tool operation(s) detected from a prior crash/timeout:"
@@ -490,18 +494,34 @@ class App:
             if target_committed:
                 landed_path = (pre_fp.get("path") if isinstance(pre_fp, dict) else None) or (args_dict.get("path") or args_dict.get("file_path"))
                 landed_result = {"recovered": "already_landed", "path": str(landed_path) if landed_path else None}
+                post_fp = None
                 try:
-                    j.mark_resumed(attempt_id, result=landed_result, status="recovered_landed")
+                    post_fp = _tfp(tool, args_dict)
+                except Exception:
+                    post_fp = None
+                try:
+                    j.mark_resumed(attempt_id, result=landed_result, status="recovered_landed", post_fp=post_fp)
                 except TypeError:
-                    j.mark_resumed(attempt_id, result=landed_result)
+                    try:
+                        j.mark_resumed(attempt_id, result=landed_result, status="recovered_landed")
+                    except TypeError:
+                        j.mark_resumed(attempt_id, result=landed_result)
                 lines.append(f"  - [{clean_tool}] {clean_op}: target ALREADY mutated on disk -> marked recovered_landed")
             elif target_changed:
                 landed_path = pre_fp.get("path") if isinstance(pre_fp, dict) else None
                 landed_result = {"recovered": "already_landed", "path": landed_path}
+                post_fp = None
                 try:
-                    j.mark_resumed(attempt_id, result=landed_result, status="recovered_landed")
+                    post_fp = _tfp(tool, args_dict)
+                except Exception:
+                    post_fp = None
+                try:
+                    j.mark_resumed(attempt_id, result=landed_result, status="recovered_landed", post_fp=post_fp)
                 except TypeError:
-                    j.mark_resumed(attempt_id, result=landed_result)
+                    try:
+                        j.mark_resumed(attempt_id, result=landed_result, status="recovered_landed")
+                    except TypeError:
+                        j.mark_resumed(attempt_id, result=landed_result)
                 lines.append(f"  - [{clean_tool}] {clean_op}: target ALREADY mutated on disk -> safe to mark recovered_landed")
             else:
                 lines.append(f"  - [{clean_tool}] {clean_op}: target unchanged -> needs replay (run /recover)")
