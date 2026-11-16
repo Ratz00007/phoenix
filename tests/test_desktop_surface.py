@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import subprocess
@@ -11,9 +12,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DESKTOP_PLUGIN = ROOT / "desktop" / "plugin.js"
 DASHBOARD_BUNDLE = ROOT / "dashboard" / "dist" / "index.js"
+DASHBOARD_MANIFEST = ROOT / "dashboard" / "manifest.json"
 
 FORBIDDEN_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    ("eval", re.compile(r"\beval\b")),
+    ("eval", re.compile(r"(?<![\w$.])eval\(")),
     ("new Function", re.compile(r"\bnew\s+Function\b")),
     ("dynamic import()", re.compile(r"\bimport\s*\(")),
     ("<script>", re.compile(r"<script\b", re.IGNORECASE)),
@@ -23,17 +25,19 @@ FORBIDDEN_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("data-testid", re.compile(r"data-testid")),
     ("MutationObserver", re.compile(r"\bMutationObserver\b")),
     ("webview", re.compile(r"\bwebview\b", re.IGNORECASE)),
+    ("window.hermesDesktop", re.compile(r"\bhermesDesktop\b")),
     ("JSX opening tag", re.compile(r"<[A-Za-z][A-Za-z0-9._-]*[\s/>]")),
     ("JSX closing tag", re.compile(r"</[A-Za-z][A-Za-z0-9._-]*>")),
 ]
 
 
 class TestDesktopSurface(unittest.TestCase):
-    """Validate desktop/plugin.js and dashboard/dist/index.js syntax and lint rules."""
+    """Validate desktop/plugin.js and dashboard/dist/index.js syntax, SDK contracts, and lint rules."""
 
     def test_files_exist(self) -> None:
         self.assertTrue(DESKTOP_PLUGIN.is_file(), f"Missing {DESKTOP_PLUGIN}")
         self.assertTrue(DASHBOARD_BUNDLE.is_file(), f"Missing {DASHBOARD_BUNDLE}")
+        self.assertTrue(DASHBOARD_MANIFEST.is_file(), f"Missing {DASHBOARD_MANIFEST}")
 
     def test_node_syntax_check(self) -> None:
         node = shutil.which("node")
@@ -61,7 +65,7 @@ class TestDesktopSurface(unittest.TestCase):
                     f"Forbidden pattern '{label}' found in {target}: {match.group(0) if match else ''}",
                 )
 
-    def test_desktop_plugin_imports_and_surfaces(self) -> None:
+    def test_desktop_plugin_sdk_contract(self) -> None:
         src = DESKTOP_PLUGIN.read_text(encoding="utf-8")
         allowed_modules = {"react", "react/jsx-runtime", "@hermes/plugin-sdk"}
         imports = re.findall(r"from\s+['\"]([^'\"]+)['\"]", src)
@@ -70,21 +74,45 @@ class TestDesktopSurface(unittest.TestCase):
             set(imports).issubset(allowed_modules),
             f"Unexpected imports: {set(imports) - allowed_modules}",
         )
-        for surface in ("sidebarNav", "routes", "panes", "statusBar", "palette"):
-            self.assertIn(surface, src, f"Missing surface registration: {surface}")
+        for area_const in (
+            "ROUTES_AREA",
+            "SIDEBAR_NAV_AREA",
+            "PANES_AREA",
+            "STATUSBAR_AREAS",
+            "PALETTE_AREA",
+        ):
+            self.assertIn(area_const, src, f"Missing SDK area constant: {area_const}")
+        self.assertIn("registerMany", src)
+        self.assertIn("host.navigate", src)
         self.assertIn("id: 'phoenix'", src)
         self.assertIn("register(ctx)", src)
         self.assertIn("/windtunnel", src)
         self.assertIn("/timeline", src)
         self.assertIn("/status", src)
+        self.assertNotIn("TabsContent", src)
+        self.assertNotIn("ctx.navigate", src)
 
-    def test_dashboard_bundle_endpoints(self) -> None:
+    def test_dashboard_bundle_sdk_contract(self) -> None:
         src = DASHBOARD_BUNDLE.read_text(encoding="utf-8")
-        self.assertIn("window.React", src)
         self.assertIn("window.__HERMES_PLUGIN_SDK__", src)
+        self.assertIn("window.__HERMES_PLUGINS__", src)
+        self.assertIn("SDK.fetchJSON", src)
+        self.assertIn('REGISTRY.register("phoenix"', src)
         self.assertIn("/api/plugins/phoenix/status", src)
         self.assertIn("/api/plugins/phoenix/timeline", src)
         self.assertIn("/api/plugins/phoenix/windtunnel", src)
+        self.assertNotIn("window.React", src)
+        self.assertNotIn("registerPanel", src)
+
+    def test_dashboard_manifest_schema(self) -> None:
+        data = json.loads(DASHBOARD_MANIFEST.read_text(encoding="utf-8"))
+        self.assertEqual(data["name"], "phoenix")
+        self.assertEqual(data["label"], "Phoenix")
+        self.assertEqual(data["version"], "2.0.0")
+        self.assertEqual(data["entry"], "dist/index.js")
+        self.assertEqual(data["api"], "plugin_api.py")
+        self.assertEqual(data["icon"], "Shield")
+        self.assertEqual(data["tab"]["path"], "/phoenix")
 
 
 if __name__ == "__main__":

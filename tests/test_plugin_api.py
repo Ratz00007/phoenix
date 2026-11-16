@@ -50,6 +50,30 @@ class TestSingletonResolution(unittest.TestCase):
         ):
             self.assertIs(plugin_api._get_app(), hermes_app)
 
+    def test_prefers_profile_scoped_hermes_plugins_phoenix_core(self) -> None:
+        profile_app = MagicMock(name="profile_app")
+        direct_app = MagicMock(name="direct_app")
+
+        profile_core = types.ModuleType("hermes_plugins.phoenix__home_abcd1234.core")
+        profile_core.get_app = lambda: profile_app
+
+        direct_core = types.ModuleType("phoenix.core")
+        direct_core.get_app = lambda: direct_app
+
+        saved = sys.modules.pop("hermes_plugins.phoenix.core", None)
+        try:
+            with patch.dict(
+                sys.modules,
+                {
+                    "hermes_plugins.phoenix__home_abcd1234.core": profile_core,
+                    "phoenix.core": direct_core,
+                },
+            ):
+                self.assertIs(plugin_api._get_app(), profile_app)
+        finally:
+            if saved is not None:
+                sys.modules["hermes_plugins.phoenix.core"] = saved
+
     def test_falls_back_to_phoenix_core_when_hermes_module_absent(self) -> None:
         direct_app = MagicMock(name="direct_app")
         direct_core = types.ModuleType("phoenix.core")
@@ -103,6 +127,7 @@ class TestPluginApiEndpoints(unittest.TestCase):
         self.assertEqual(res["errors"], 1)
         self.assertEqual(res["deduped"], 0)
         self.assertEqual(res["in_flight"], 0)
+        self.assertEqual(res["recovered_landed"], 0)
         self.assertEqual(res["total"], 2)
         self.assertIsInstance(res["stats"], dict)
         self.assertGreater(res["db_bytes"], 0)

@@ -219,6 +219,20 @@ class TestPhoenixStatsTool(unittest.TestCase):
         self.assertEqual(set(declared_tools), set(registered.keys()))
         self.assertEqual(set(declared_tools), {"phoenix_ledger", "phoenix_windtunnel", "phoenix_stats"})
 
+    def test_middleware_bypasses_phoenix_stats_without_journaling(self):
+        mw = phx.middleware.make_middleware(lambda: self.app)
+        called = []
+
+        def next_call(args):
+            called.append(args)
+            return tools.phoenix_stats()
+
+        raw = mw(tool_name="phoenix_stats", args={}, session_id="s1", next_call=next_call)
+        data = json.loads(raw)
+        self.assertEqual(data["total"], 0)
+        self.assertEqual(self.app._journal().stats()["total"], 0)
+        self.assertEqual(len(called), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

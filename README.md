@@ -1,4 +1,4 @@
-# Phoenix v0.3.1 — The Exactly-Once Trust Layer for Autonomous Agents
+# Phoenix v2.0.0 — The Exactly-Once Trust Layer for Autonomous Agents
 
 > ### **Kill your agent mid-write. It recovers having executed exactly once.**
 > **Transactional SQLite WAL Flight Recorder + SHA-256 State Fingerprinting + Zeller `ddmin` Wind Tunnel**  
@@ -11,8 +11,8 @@
 <p align="center">
   <a href="https://github.com/NousResearch/hermes-agent/pull/154408"><img src="https://img.shields.io/badge/Catalog%20PR-%23154408-orange.svg" alt="PR #154408"></a>
   <a href="https://x.com/GreyPolitiynxa"><img src="https://img.shields.io/badge/Demo%20Film-Watch%20on%20X-black.svg" alt="Demo Film on X"></a>
-  <img src="https://img.shields.io/badge/hermes%20validate-14%2F14%20passed-brightgreen.svg" alt="Hermes Validate">
-  <img src="https://img.shields.io/badge/tests-80%2F80%20passed-brightgreen.svg" alt="Tests">
+  <img src="https://img.shields.io/badge/hermes%20validate-passed-brightgreen.svg" alt="Hermes Validate">
+  <img src="https://img.shields.io/badge/tests-105%2F105%20passed-brightgreen.svg" alt="Tests">
   <img src="https://img.shields.io/badge/dependencies-0%20(stdlib%20only)-blue.svg" alt="Dependencies">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License"></a>
 </p>
@@ -77,7 +77,7 @@ Phoenix provides a zero-dependency trust layer built strictly on Python 3.11+ st
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                            PHOENIX v0.3.1 RUNTIME ARCHITECTURE                                  │
+│                            PHOENIX v2.0.0 RUNTIME ARCHITECTURE                                  │
 └─────────────────────────────────────────────────────────────────────────────────────────────────┘
 
   Hermes Agent Tool Execution
@@ -98,7 +98,7 @@ Phoenix provides a zero-dependency trust layer built strictly on Python 3.11+ st
             │
   ┌────────────────────────┐      ┌────────────────────────┐      ┌────────────────────────┐
   │ Owner-Only Forward     │      │ Turn-1 System Prompt   │      │ Zeller ddmin Fault     │
-  │ Recovery (/recover)    │      │ Alert (phoenix_recovery│      │ Wind Tunnel (windtunnel│
+  │ Recovery (/recover)    │      │ Alert (phoenix_recovery│      │ Wind Tunnel & Chaos Lab│
   └────────────────────────┘      └────────────────────────┘      └────────────────────────┘
 ```
 
@@ -113,7 +113,7 @@ hermes plugins install phoenix
 # 2. Run the 4-Act crash-and-recover + Zeller ddmin demo (< 1s)
 python demo.py
 
-# 3. Run the complete evaluation scorecard (80 unit tests, doctor checks, wind tunnel)
+# 3. Run the complete evaluation scorecard (105 unit tests, doctor checks, wind tunnel, chaos engine)
 python judge_eval.py
 
 # 4. Run official Hermes plugin validator
@@ -126,7 +126,12 @@ hermes plugins validate .
 
 ### Native Model Tools (Read-Only / Diagnostic)
 - `phoenix_ledger`: Inspect the execution journal (`action: status | explain | report`). Mutating/recovery actions are strictly rejected here and restricted to human owner slash commands. Report output is strictly sanitized to `plugin_data_dir("phoenix")/reports/<basename>.html`.
+- `phoenix_stats`: Read-only JSON telemetry and health metrics (operation counts, idempotency guard state, SQLite WAL size, and windtunnel verdict).
 - `phoenix_windtunnel`: Execute the deterministic fault-injection wind tunnel with Zeller `ddmin` trace minimization.
+
+### Hermes Desktop & Web Dashboard Surfaces
+- **Desktop SDK (`desktop/plugin.js`)**: Contributes a `/phoenix` Flight Recorder route, sidebar navigation item, right-docked WAL stream pane, live status-bar guard pill, and command-palette entry built with `@hermes/plugin-sdk`.
+- **Web Dashboard (`dashboard/`)**: FastAPI `plugin_api.py` endpoints (`/status`, `/timeline`, `/windtunnel`) + React panel registered via `window.__HERMES_PLUGINS__`.
 
 ### Owner-Typed Slash Commands
 - `/phoenix status`: Active ledger state and in-flight operations.

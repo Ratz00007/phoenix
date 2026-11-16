@@ -7,10 +7,11 @@ maintainer: Ratz00007
 tier: community
 category: tools
 requires_hermes: ">=0.21.6"
-version: "0.3.1"
+version: "2.0.0"
 capabilities:
   provides_tools:
     - phoenix_ledger
+    - phoenix_stats
     - phoenix_windtunnel
   provides_hooks: []
   provides_middleware:

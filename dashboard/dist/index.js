@@ -5,18 +5,30 @@
     return;
   }
 
-  var sdk = window.__HERMES_PLUGIN_SDK__;
-  if (!sdk || typeof sdk.registerPanel !== "function") {
+  var SDK = window.__HERMES_PLUGIN_SDK__;
+  var REGISTRY = window.__HERMES_PLUGINS__;
+  if (!SDK || !SDK.React || !REGISTRY || typeof REGISTRY.register !== "function") {
     return;
   }
 
-  var React = window.React;
-  if (!React || !React.createElement) {
-    return;
-  }
+  var React = SDK.React;
   var e = React.createElement;
+  var useState = (SDK.hooks && SDK.hooks.useState) || React.useState;
+  var useEffect = (SDK.hooks && SDK.hooks.useEffect) || React.useEffect;
 
-  var STATUS_FILTERS = ["all", "intent", "ok", "deduped", "recovered_landed", "error"];
+  function fetchJson(path, opts) {
+    if (typeof SDK.fetchJSON === "function") {
+      return SDK.fetchJSON(path, opts);
+    }
+    return fetch(path, opts).then(function (res) {
+      if (!res.ok) {
+        throw new Error("HTTP " + res.status + " " + res.statusText);
+      }
+      return res.json();
+    });
+  }
+
+  var STATUS_FILTERS = ["all", "intent", "ok", "deduped", "recovered_landed", "resumed", "error"];
 
   var STATUS_COLORS = {
     ok: "#10b981",
@@ -75,6 +87,9 @@
     if (typeof ev.latency_ms === "number") {
       return ev.latency_ms;
     }
+    if (typeof ev.duration_ms === "number") {
+      return Math.max(0, Math.round(ev.duration_ms));
+    }
     if (typeof ev.ts_done === "number" && typeof ev.ts_intent === "number") {
       return Math.max(0, Math.round((ev.ts_done - ev.ts_intent) * 1000));
     }
@@ -127,58 +142,46 @@
   }
 
   function PhoenixDashboardPanel() {
-    var statusHook = React.useState({ loading: true, data: null, error: null });
+    var statusHook = useState({ loading: true, data: null, error: null });
     var statusState = statusHook[0];
     var setStatusState = statusHook[1];
 
-    var timelineHook = React.useState([]);
+    var timelineHook = useState([]);
     var timelineEvents = timelineHook[0];
     var setTimelineEvents = timelineHook[1];
 
-    var searchHook = React.useState("");
+    var searchHook = useState("");
     var search = searchHook[0];
     var setSearch = searchHook[1];
 
-    var filterHook = React.useState("all");
+    var filterHook = useState("all");
     var statusFilter = filterHook[0];
     var setStatusFilter = filterHook[1];
 
-    var selectedHook = React.useState(null);
+    var selectedHook = useState(null);
     var selectedId = selectedHook[0];
     var setSelectedId = selectedHook[1];
 
-    var copiedHook = React.useState("");
+    var copiedHook = useState("");
     var copiedKey = copiedHook[0];
     var setCopiedKey = copiedHook[1];
 
-    var wtHook = React.useState({ running: false, report: null, error: null });
+    var wtHook = useState({ running: false, report: null, error: null });
     var wtState = wtHook[0];
     var setWtState = wtHook[1];
 
     var fetchAll = function () {
-      fetch("/api/plugins/phoenix/status")
-        .then(function (res) {
-          if (!res.ok) {
-            throw new Error("HTTP " + res.status + " " + res.statusText);
-          }
-          return res.json();
-        })
+      fetchJson("/api/plugins/phoenix/status")
         .then(function (payload) {
           setStatusState({ loading: false, data: payload, error: null });
         })
         .catch(function (err) {
           setStatusState(function (prev) {
-            return { loading: false, data: prev.data, error: err.message || String(err) };
+            return { loading: false, data: prev.data, error: (err && err.message) || String(err) };
           });
         });
 
-      fetch("/api/plugins/phoenix/timeline")
-        .then(function (res) {
-          if (!res.ok) {
-            return null;
-          }
-          return res.json();
-        })
+      fetchJson("/api/plugins/phoenix/timeline")
         .then(function (payload) {
           if (payload) {
             setTimelineEvents(normalizeEvents(payload, null));
@@ -191,13 +194,7 @@
       setWtState(function (prev) {
         return { running: true, report: prev.report, error: null };
       });
-      fetch("/api/plugins/phoenix/windtunnel", { method: "POST" })
-        .then(function (res) {
-          if (!res.ok) {
-            throw new Error("HTTP " + res.status + " " + res.statusText);
-          }
-          return res.json();
-        })
+      fetchJson("/api/plugins/phoenix/windtunnel", { method: "POST" })
         .then(function (payload) {
           var unwrapped = payload && payload.report ? payload.report : payload;
           setWtState({ running: false, report: unwrapped, error: null });
@@ -205,12 +202,12 @@
         })
         .catch(function (err) {
           setWtState(function (prev) {
-            return { running: false, report: prev.report, error: err.message || String(err) };
+            return { running: false, report: prev.report, error: (err && err.message) || String(err) };
           });
         });
     };
 
-    React.useEffect(function () {
+    useEffect(function () {
       fetchAll();
       var interval = setInterval(fetchAll, 5000);
       return function () {
@@ -276,7 +273,7 @@
           },
           "Failed to load Phoenix status: " + statusState.error
         ),
-        e("button", { style: Object.assign({}, btnStyle, { marginTop: "12px" }), onClick: fetchAll }, "Retry")
+        e("button", { type: "button", style: Object.assign({}, btnStyle, { marginTop: "12px" }), onClick: fetchAll }, "Retry")
       );
     }
 
@@ -284,9 +281,11 @@
     var stats = data.stats || data;
     var guardOn = Boolean(data.guard_enabled !== undefined ? data.guard_enabled : true);
     var events = timelineEvents.length > 0 ? timelineEvents : normalizeEvents(null, data);
-    var recoveredCount = typeof stats.recovered_landed === "number"
-      ? stats.recovered_landed
-      : events.filter(function (ev) { return ev.status === "recovered_landed"; }).length;
+    var recoveredCount = typeof data.recovered_landed === "number"
+      ? data.recovered_landed
+      : (typeof stats.recovered_landed === "number"
+          ? stats.recovered_landed
+          : events.filter(function (ev) { return ev.status === "recovered_landed"; }).length);
 
     var q = search.trim().toLowerCase();
     var filteredEvents = events.filter(function (ev) {
@@ -301,6 +300,7 @@
         ev.tool_name,
         ev.op_id,
         ev.attempt_id,
+        ev.idem_key,
         ev.idempotency_key,
         ev.status,
         typeof ev.args === "string" ? ev.args : JSON.stringify(ev.args || "")
@@ -366,7 +366,7 @@
 
     var wtReport = wtState.report || data.windtunnel_report || null;
     var wtChecks = wtReport && Array.isArray(wtReport.checks) ? wtReport.checks : [];
-    var minimized = wtReport && (wtReport.minimized_trace || wtReport.ddmin_trace || wtReport.counterexample);
+    var minimized = wtReport && (wtReport.ddmin || wtReport.minimized_trace || wtReport.ddmin_trace || wtReport.counterexample);
 
     var renderInspector = function () {
       if (!selectedEvent) {
@@ -379,8 +379,7 @@
 
       var fp = computeFpComparison(selectedEvent);
       var attemptId = selectedEvent.attempt_id || "—";
-      var opId = selectedEvent.op_id || "—";
-      var idempKey = selectedEvent.idempotency_key || selectedEvent.op_id || "—";
+      var idempKey = selectedEvent.idem_key || selectedEvent.idempotency_key || selectedEvent.op_id || "—";
       var latency = getEventLatencyMs(selectedEvent);
       var argsPayload = selectedEvent.args !== undefined ? selectedEvent.args : selectedEvent.args_json;
       var resultPayload = selectedEvent.result !== undefined ? selectedEvent.result : selectedEvent.result_json;
@@ -453,7 +452,7 @@
                   type: "button",
                   style: Object.assign({}, btnStyle, { padding: "2px 6px", fontSize: "10px" }),
                   onClick: function () {
-                    copyText(opId, function () { setCopiedKey("op"); });
+                    copyText(idempKey, function () { setCopiedKey("op"); });
                   }
                 },
                 copiedKey === "op" ? "Copied" : "Copy"
@@ -707,9 +706,5 @@
     );
   }
 
-  sdk.registerPanel("phoenix", {
-    title: "Phoenix Flight Recorder",
-    icon: "flame",
-    component: PhoenixDashboardPanel
-  });
+  REGISTRY.register("phoenix", PhoenixDashboardPanel);
 })();

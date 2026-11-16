@@ -1,4 +1,4 @@
-# Phoenix v0.3.1 Architecture
+# Phoenix v2.0.0 Architecture
 
 > **Core Invariant:** *At-most-once execution + at-least-once recording + zero duplicate writes.*
 
@@ -9,31 +9,33 @@
 ```
 phoenix/
 ├── __init__.py          # Hermes register(ctx): middleware, tools, commands, system prompt
-├── plugin.yaml          # Standalone manifest (v0.3.1, 0 deps)
+├── plugin.yaml          # Standalone manifest (v2.0.0, 0 deps)
 ├── core.py              # Phoenix App lifecycle, Turn-1 crash alert, forward recovery
 ├── journal.py           # SQLite WAL ledger (0600, O_EXCL, WAL/SHM perms, retention, redaction)
 ├── keys.py              # Canonical op_id SHA-256 & target state fingerprinting
 ├── middleware.py        # tool_execution interceptor + opt-in same-session idempotency guard
 ├── commands.py          # Owner-only /phoenix & /recover slash commands + CLI handler
-├── tools.py             # Read-only phoenix_ledger & real phoenix_windtunnel model tools
+├── tools.py             # Read-only phoenix_ledger & phoenix_stats + phoenix_windtunnel tools
 ├── report.py            # Zero-script standalone dark-mode HTML forensic report
 ├── windtunnel.py        # Deterministic fault-injection wind tunnel + Zeller ddmin minimizer
+├── chaos.py             # Deterministic seeded crash-boundary engine (4 crash boundaries)
 ├── selfcheck.py         # Hermes plugin doctor self-check script
-├── demo.py              # 4-act end-to-end crash-and-recover demonstration
-├── judge_eval.py        # Official judge scorecard (80 unit tests, doctor, windtunnel)
+├── demo.py              # 4-act end-to-end crash-and-recover + --chaos demonstration
+├── judge_eval.py        # Official judge scorecard (105 unit tests, doctor, windtunnel, chaos)
 ├── dashboard/           # Hermes Web Dashboard extension (manifest.json, plugin_api.py, dist/index.js)
-└── tests/               # 80 unit tests (unittest discover -s tests)
+├── desktop/             # Hermes Desktop SDK surface (desktop/plugin.js)
+└── tests/               # 105 unit tests (unittest discover -s tests)
 ```
 
 ---
 
 ## 2. Transactional SQLite WAL Protocol (`journal.py`)
 
-Every tool call passes through `middleware.py` before reaching Hermes' underlying tool executor:
+Every tool call passes through `middleware.py` before reaching Hermes' underlying tool executor (excluding Phoenix's own read-only/diagnostic tools `phoenix_ledger`, `phoenix_windtunnel`, and `phoenix_stats`):
 
-1. **Intent Logging (`record_intent`)**: Writes a row into `phoenix.db` (`journal_mode=WAL`, `synchronous=NORMAL`, `0600` permissions on DB and `-wal`/`-shm` sidecars) with `status='in_flight'`, canonical `op_id`, redacted `args_json`, and pre-execution SHA-256 target `pre_fp`.
+1. **Intent Logging (`record_intent`)**: Writes a row into `phoenix.db` (`journal_mode=WAL`, `synchronous=NORMAL`, `0600` permissions on DB and `-wal`/`-shm` sidecars) with `status='intent'`, canonical `op_id`, redacted `args_json`, and pre-execution SHA-256 target `pre_fp`.
 2. **Tool Execution**: The underlying tool runs normally.
-3. **Outcome Commit (`record_outcome`)**: Updates the row to `status='committed'` (or `status='error'`) with post-execution SHA-256 target `post_fp` and redacted `result_json`.
+3. **Outcome Commit (`record_outcome`)**: Updates the row to `status='ok'` (or `status='error'`) with post-execution SHA-256 target `post_fp` and redacted `result_json`.
 
 ---
 
@@ -49,6 +51,7 @@ If `SIGKILL`, OOM, or power loss kills the process between Step 1 and Step 3:
 
 ---
 
-## 4. ReplayLab Wind Tunnel & Zeller `ddmin` (`windtunnel.py`)
+## 4. ReplayLab Wind Tunnel, Zeller `ddmin` & Chaos Engine (`windtunnel.py`, `chaos.py`)
 
-`windtunnel.py` injects deterministic boundary faults (`timeout_after_commit`, `rate_limit_429`, `malformed_payload`) across `HERMES_DEV_TRACE` and applies Zeller's delta debugging (`ddmin_trace`) to isolate the minimal 1-step counterexample in `<50ms` with 0 LLM calls.
+- `windtunnel.py` injects deterministic boundary faults (`timeout_after_commit`, `rate_limit_429`, `malformed_payload`) across `HERMES_DEV_TRACE` and applies Zeller's delta debugging (`ddmin_trace`) to isolate the minimal 1-step counterexample with 0 LLM calls.
+- `chaos.py` drives a deterministic seeded crash-boundary harness across all 4 crash windows (`before_intent`, `after_intent_before_write`, `after_write_before_outcome`, `after_outcome`) verifying 0 duplicate executions and exact disk byte integrity.

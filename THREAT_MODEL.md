@@ -1,4 +1,4 @@
-# Phoenix v0.3.1 Threat Model & Security Invariants
+# Phoenix v2.0.0 Threat Model & Security Invariants
 
 Phoenix is engineered under strict least-privilege assumptions for autonomous agents handling real filesystems and external APIs.
 

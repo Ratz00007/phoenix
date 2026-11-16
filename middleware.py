@@ -32,6 +32,7 @@ _READ_ONLY_TOOLS = frozenset({
     "fetch_web_page",
     "phoenix_ledger",
     "phoenix_windtunnel",
+    "phoenix_stats",
 })
 
 _DECLARED_MUTATING_TOOLS = frozenset({
@@ -76,7 +77,7 @@ def make_middleware(
 
     def _middleware(**kwargs):
         tool = kwargs.get("tool_name", "unknown")
-        if tool in {"phoenix_ledger", "phoenix_windtunnel"}:
+        if tool in {"phoenix_ledger", "phoenix_windtunnel", "phoenix_stats"}:
             return kwargs["next_call"](kwargs.get("args"))
 
         app = app_getter() if callable(app_getter) else app_getter

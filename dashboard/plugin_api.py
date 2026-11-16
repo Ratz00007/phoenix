@@ -15,9 +15,20 @@ if _grandparent_dir not in sys.path:
     sys.path.insert(0, _grandparent_dir)
 
 
+def _resolve_loaded_submodule(submodule: str) -> Any | None:
+    """Find an already-loaded Phoenix submodule across bare or profile-scoped plugin namespaces."""
+    exact = sys.modules.get(f"hermes_plugins.phoenix.{submodule}")
+    if exact is not None:
+        return exact
+    for name, mod in list(sys.modules.items()):
+        if mod is not None and name.startswith("hermes_plugins.phoenix") and name.endswith(f".{submodule}"):
+            return mod
+    return sys.modules.get(f"phoenix.{submodule}")
+
+
 def _get_app() -> Any:
     """Resolve the active Phoenix App singleton without module-split duplication."""
-    core_mod = sys.modules.get("hermes_plugins.phoenix.core") or sys.modules.get("phoenix.core")
+    core_mod = _resolve_loaded_submodule("core")
     if core_mod is not None and hasattr(core_mod, "get_app"):
         return core_mod.get_app()
     from phoenix.core import get_app
@@ -27,7 +38,7 @@ def _get_app() -> Any:
 
 def _get_windtunnel_runner():
     """Resolve run_windtunnel_suite from the loaded plugin namespace if present."""
-    wt_mod = sys.modules.get("hermes_plugins.phoenix.windtunnel") or sys.modules.get("phoenix.windtunnel")
+    wt_mod = _resolve_loaded_submodule("windtunnel")
     if wt_mod is not None and hasattr(wt_mod, "run_windtunnel_suite"):
         return wt_mod.run_windtunnel_suite
     from phoenix.windtunnel import run_windtunnel_suite
@@ -86,6 +97,7 @@ def get_status() -> dict[str, Any]:
         "committed": stats.get("committed", 0),
         "deduped": stats.get("deduped", 0),
         "in_flight": stats.get("in_flight", 0),
+        "recovered_landed": stats.get("recovered_landed", 0),
         "errors": stats.get("errors", 0),
         "total": stats.get("total", 0),
         "db_bytes": _compute_db_bytes(j),

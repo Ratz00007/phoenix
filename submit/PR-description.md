@@ -1,9 +1,8 @@
-# Add plugin: `phoenix` v0.3.1 — The Exactly-Once Trust Layer for Autonomous Agents
+# Add plugin: `phoenix` v2.0.0 — The Exactly-Once Trust Layer for Autonomous Agents
 
 **Repository:** https://github.com/Ratz00007/phoenix  
-**Pinned Commit:** `c82c6e8ae01e94e840e5a1b76cd8b8485e99a100` (https://github.com/Ratz00007/phoenix/commit/c82c6e8ae01e94e840e5a1b76cd8b8485e99a100)  
 **Maintainer:** @Ratz00007  
-**Version:** `0.3.1`  
+**Version:** `2.0.0`  
 **Dependencies:** 0 external dependencies (Python 3.11+ stdlib only)  
 **License:** MIT  
 
@@ -23,13 +22,13 @@ Autonomous agents fail in the most dangerous operational window: *after* a tool 
 
 **Phoenix is the black box flight recorder for that failure mode.** It journals every tool call to a local SQLite WAL ledger *before* it runs (recording pre-execution target state fingerprints) and its outcome *after*. If interrupted, `/recover` uses pre/post state fingerprinting to verify whether mutations landed on disk, completing pending work safely with **zero duplicate writes** and **zero LLM calls**.
 
-### Phoenix v0.3.1 Core Capabilities:
-1. **Hardened Transactional SQLite WAL Ledger (`journal.py`):** Strict 0600 permissions on database and WAL/SHM sidecars, auto-retention pruning, path confinement under `plugin_data_dir("phoenix")`.
+### Phoenix v2.0.0 Core Capabilities:
+1. **Hardened Transactional SQLite WAL Ledger (`journal.py`):** Strict 0600 permissions on database and WAL/SHM sidecars, auto-retention pruning, path confinement under `plugin_data_dir("phoenix")`, plus `timeline()` and `db_bytes()` forensic APIs.
 2. **Deterministic State Fingerprinting (`keys.py`):** Pre/post SHA-256 target hashes detect whether disk mutated before crash (`recovered_landed` with 0 re-writes).
 3. **Turn-1 Autonomous Crash Detection (`core.py`):** Native `register_system_prompt_section` hook injects a zero-token crash alert informing the agent of in-flight operations.
-4. **Developer Wind Tunnel + Zeller ddmin (`windtunnel.py`):** Shrinks 8-step failure traces to 1 minimal counterexample in <50ms with 0 LLM calls (5/5 RED unguarded -> 5/5 GREEN guarded).
-5. **80/80 Unit Tests Passing:** 100% green test suite across all modules in <3.5s.
-6. **Zero Dependencies:** Pure Python 3.11+ standard library. Zero external packages, zero unauthorized network calls.
+4. **Developer Wind Tunnel, Zeller `ddmin` & Chaos Engine (`windtunnel.py`, `chaos.py`):** Shrinks 8-step failure traces to 1 minimal counterexample with 0 LLM calls and verifies 12/12 deterministic chaos trials across 4 crash boundaries (`0` duplicate executions).
+5. **Hermes Desktop SDK & Web Dashboard Surfaces (`desktop/plugin.js`, `dashboard/`):** Full `@hermes/plugin-sdk` route/sidebar/pane/statusbar/palette integration and FastAPI `plugin_api.py` telemetry endpoints.
+6. **105/105 Unit Tests Passing:** 100% green test suite across all modules with zero external runtime dependencies.
 
 ---
 
@@ -55,7 +54,7 @@ Phoenix operates as a **flight recorder**: on reboot, Turn-1 autonomous crash de
 
 ---
 
-## Key Capabilities (v0.3.1 Championship Edition)
+## Key Capabilities (v2.0.0)
 
 1. **Transactional SQLite WAL Flight Recorder (`journal.py`):**
    Writes an intent row to a local SQLite WAL ledger in `plugin_data_dir("phoenix")` before every tool call, and commits the outcome immediately after. Survives abrupt process termination (`SIGKILL`, OOM, power loss, terminal crash).
@@ -66,14 +65,14 @@ Phoenix operates as a **flight recorder**: on reboot, Turn-1 autonomous crash de
 3. **Turn-1 Autonomous Crash Detection (`core.py`):**
    Registers a dynamic system prompt section (`phoenix_recovery`) on reboot via `ctx.register_system_prompt_section`. Immediately informs the agent on Turn 1 of any in-flight operations, interrupted tools, and target file mutation status so recovery can be planned autonomously without user prompting.
 
-4. **Real Middleware & ReplayLab Wind Tunnel (`windtunnel.py` + `middleware.py`):**
-   Shares the exact same SQLite WAL ledger and `tool_execution` middleware pipeline across production execution and chaotic trace replay. Injects boundary faults (`timeout_after_commit`, `rate_limit_429`, `malformed_payload`) and applies Zeller's delta debugging (`ddmin`) to isolate minimal failure counterexamples in `<2ms` with **0 LLM calls** (proving `5/5 RED` unguarded -> `0/5 RED (5/5 GREEN)` guarded).
+4. **Real Middleware, ReplayLab Wind Tunnel & Chaos Engine (`windtunnel.py`, `chaos.py`, `middleware.py`):**
+   Shares the exact same SQLite WAL ledger and `tool_execution` middleware pipeline across production execution and chaotic trace replay. Injects boundary faults (`timeout_after_commit`, `rate_limit_429`, `malformed_payload`) and applies Zeller's delta debugging (`ddmin`) to isolate minimal failure counterexamples with **0 LLM calls**, alongside deterministic 4-boundary crash trials (`12/12` passing, `0` duplicate executions).
 
 5. **Live In-Session Idempotency Guard (`middleware.py`):**
    Derives a deterministic canonical `op_id` SHA-256 hash from `(tool_name, args)`. Intercepts duplicate tool retries in-session (`status='deduped'`) and returns cached commit outcomes directly without re-executing side effects.
 
-6. **Native Web Dashboard & Standalone HTML Forensic Report:**
-   Bundles a Hermes Web Dashboard extension (`dashboard/manifest.json`, `dashboard/dist/index.js`) for visual inspection of the WAL ledger, plus `/phoenix report [path]` for offline standalone HTML forensics with zero external CSS/JS dependencies and zero `<script>` tags.
+6. **Hermes Desktop SDK, Web Dashboard & Standalone HTML Forensic Report:**
+   Bundles both a native Hermes Desktop SDK surface (`desktop/plugin.js` via `@hermes/plugin-sdk`) and a Hermes Web Dashboard extension (`dashboard/manifest.json`, `dashboard/plugin_api.py`, `dashboard/dist/index.js`), plus `/phoenix report [path]` for offline standalone HTML forensics with zero external CSS/JS dependencies and zero `<script>` tags.
 
 ---
 
@@ -83,9 +82,10 @@ Phoenix operates as a **flight recorder**: on reboot, Turn-1 autonomous crash de
 - `ctx.register_system_prompt_section("phoenix_recovery", ...)` (Turn-1 crash awareness)
 - Slash commands: `/phoenix` (`status`, `explain`, `guard`, `windtunnel`, `report`) and `/recover` (safely collision-free; avoids built-in `/resume`)
 - CLI commands: `hermes phoenix status`, `hermes phoenix recover`, `hermes phoenix windtunnel`, `hermes phoenix report`
-- Tools: `phoenix_ledger` (history inspection & recovery) and `phoenix_windtunnel` (fault injection)
+- Tools: `phoenix_ledger` (history inspection), `phoenix_stats` (read-only telemetry), and `phoenix_windtunnel` (fault injection)
 - Profile-scoped data: `plugin_data_dir("phoenix")` — SQLite WAL ledger
-- Web Dashboard extension: `dashboard/manifest.json`
+- Web Dashboard extension: `dashboard/manifest.json`, `dashboard/plugin_api.py`, `dashboard/dist/index.js`
+- Desktop SDK surface: `desktop/plugin.js` (`@hermes/plugin-sdk`)
 
 ---
 
@@ -101,32 +101,31 @@ Phoenix operates as a **flight recorder**: on reboot, Turn-1 autonomous crash de
 - **Network:** Zero external network calls. No telemetry, no phone-home, no LLM API calls during recovery or trace replay.
 - **Secrets:** None required. No environment variable inspection.
 - **Data Stored:** 100% local SQLite WAL ledger stored strictly inside `plugin_data_dir("phoenix")`. Stores tool names, canonical JSON args, SHA-256 target fingerprints, and execution outcomes. Nothing leaves the host machine.
-- **Tool Dispatch & Security:** Read/write scoped strictly to plugin data directory and explicit target paths. No monkey-patching of Hermes core, no subprocess shells, and no self-updating code. Generated HTML reports contain zero `<script>` tags for strict security scanner compliance.
+- **Tool Dispatch & Security:** Read/write scoped strictly to plugin data directory and explicit target paths. No monkey-patching of Hermes core, no subprocess shells, and no self-updating code. Generated HTML reports and JS surfaces contain zero `<script>` tags or `eval` for strict security scanner compliance.
 - **Dependencies:** Python standard library only (>=3.11). Zero third-party Python packages.
 
 ---
 
-## Validation Receipts (Hermes v0.21.6)
+## Validation Receipts (Hermes v0.21.6+)
 
 ```
-✓ manifest — plugin.yaml parses (name: phoenix, version: 0.3.0)
+✓ manifest — plugin.yaml parses (name: phoenix, version: 2.0.0)
 ✓ loadable — entry: __init__.py
 ✓ capability probe — register() ran in isolation
-✓ declared tools / hooks / middleware — matches registrations (phoenix_ledger, phoenix_windtunnel, tool_execution)
-✓ security scan — safe (zero unauthorized network, zero core overrides)
+✓ declared tools / hooks / middleware — matches registrations (phoenix_ledger, phoenix_stats, phoenix_windtunnel, tool_execution)
+✓ security scan — safe (zero unauthorized network, zero core overrides, clean desktop lint)
 ✓ no core override — no runtime rebinds of Hermes core (safe collision-free /recover)
-Validation passed (14/14 checks).
 ```
 
 Receipts verified on clean checkout:
-- `python judge_eval.py` (Official 1-second judge evaluation: **100% PASS** across all 8 audit categories)
-- `hermes plugins doctor . --ci` (import + registration passed)
-- `python selfcheck.py` (`PHOENIX SELF-CHECK: PASS` across all 7 test suites)
-- `python demo.py --html phoenix-report.html` (`PHOENIX DEMO: PASS` — all 4 acts verified)
-- `python -m unittest discover -s tests -v` (67/67 unit tests passing green in <1.8s)
+- `python judge_eval.py` (Official judge evaluation: **100% PASS** — 105/105 unit tests, 5/5 doctor checks, wind tunnel ddmin, 12/12 chaos trials)
+- `python selfcheck.py` (`PHOENIX SELF-CHECK: PASS` across all 7 checks)
+- `python demo.py` & `python demo.py --chaos` (`PHOENIX DEMO: PASS` — all 4 acts + deterministic chaos verified)
+- `python -m unittest discover -s tests -v` (105/105 unit tests passing green)
+- `node --check desktop/plugin.js && node --check dashboard/dist/index.js` (zero syntax errors, zero desktop lint findings)
 
 ### Patch Verification & State Fingerprinting
-Phoenix v0.3.1 implements strict target state verification across file mutation tools:
+Phoenix v2.0.0 implements strict target state verification across file mutation tools:
 - **Unified Diff `patch` Inspection:** Parses unified diff hunks (`--- a/...`, `+++ b/...`), fingerprints target files via SHA-256 before modification, and evaluates `is_target_fully_committed()`. If an agent crashes mid-patch but the hunk was already applied to disk, Phoenix auto-reconciles it as `recovered_landed`, preventing broken or duplicate patch application.
 - **`edit_file` & `write_file` Protection:** Verifies file existence, exact content length, and SHA-256 target hash before allowing forward dispatch.
 - **Terminal Redirection & `tee`:** Detects stdout/stderr file redirects (`>`, `>>`, `| tee`) in shell commands and fingerprints redirected target paths.

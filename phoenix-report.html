@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Phoenix v0.3.0 WAL & Wind Tunnel Forensic Report</title>
+  <title>Phoenix v2.0.0 WAL & Wind Tunnel Forensic Report</title>
   <style>
     :root {
       --bg: #090d16;
@@ -143,7 +143,7 @@
     }
 
     .kpi-value.kpi-guard {
-      color: var(--emerald);
+      color: var(--rose);
     }
 
     /* Section Styling */
@@ -478,13 +478,13 @@
       <div class="header-title-wrap">
         <div class="header-icon">&#x1F525;</div>
         <div>
-          <h1 class="header-title">Phoenix v0.3.0 Transactional WAL Hypervisor &amp; ReplayLab Wind Tunnel Report</h1>
+          <h1 class="header-title">Phoenix v2.0.0 Transactional WAL Hypervisor &amp; ReplayLab Wind Tunnel Report</h1>
           <div class="header-sub">Crash-Proof SQLite WAL Ledger &bull; Pre/Post State Fingerprinting &bull; Zeller ddmin Oracle</div>
         </div>
       </div>
       <div class="header-meta">
-        <div>Generated: 2026-11-11 10:55:10 UTC</div>
-        <div>Storage: C:\Users\ratin\AppData\Local\Temp\phoenix-demo-pzwzsvmr\data\phoenix.db</div>
+        <div>Generated: 2026-11-16 09:29:20 UTC</div>
+        <div>Storage: /tmp/phoenix-demo-7p4twj6_/data/phoenix.db</div>
       </div>
     </header>
 
@@ -504,7 +504,7 @@
       </div>
       <div class="kpi-card">
         <div class="kpi-label">Idempotency Guard</div>
-        <div class="kpi-value kpi-guard">ON</div>
+        <div class="kpi-value kpi-guard">OFF</div>
       </div>
       <div class="kpi-card">
         <div class="kpi-label">G2 Kill-Gate Verdict</div>
@@ -525,7 +525,7 @@
         <div class="ddmin-stat-pill">Trace: <strong>HERMES_DEV_TRACE</strong></div>
         <div class="ddmin-stat-pill">Initial Steps: <strong>8</strong></div>
         <div class="ddmin-stat-pill">Minimal Steps: <strong>1</strong></div>
-        <div class="ddmin-stat-pill">Execution: <strong>&lt;10ms (15.85ms)</strong></div>
+        <div class="ddmin-stat-pill">Execution: <strong>&lt;10ms (7.09ms)</strong></div>
         <div class="ddmin-stat-pill">LLM Calls: <strong>0 (Deterministic Oracle)</strong></div>
         <div class="ddmin-stat-pill">Replay Runs: <strong>6</strong></div>
       </div>
@@ -681,7 +681,7 @@
             <span class="check-name">Zeller ddmin counterexample minimizer</span>
             <span class="badge badge-ok">PASS</span>
           </div>
-          <div class="check-detail">8 steps -&gt; 1 minimal counterexample (6 replay runs, 15.85 ms, 0 LLM calls)</div>
+          <div class="check-detail">8 steps -&gt; 1 minimal counterexample (6 replay runs, 7.09 ms, 0 LLM calls)</div>
           
         </div>
         
@@ -721,42 +721,42 @@
           <tbody>
             
             <tr>
-              <td><code>1485a054d7204ee68d</code></td>
-              <td><code>phx_b53c4acaa044b1</code></td>
+              <td><code>de5714a009da499993</code></td>
+              <td><code>phx_4d8252b7a37e2c</code></td>
               <td><strong>write_file</strong></td>
               <td><span class="badge badge-ok">OK</span></td>
-              <td class="code-cell"><code>{&quot;path&quot;: &quot;C:\\Users\\ratin\\AppData\\Local\\Temp\\phoenix...</code></td>
-              <td class="text-muted">10:55:10</td>
+              <td class="code-cell"><code>{&quot;path&quot;: &quot;/tmp/phoenix-demo-7p4twj6_/a.txt&quot;, &quot;content&quot;: &quot;...</code></td>
+              <td class="text-muted">09:29:20</td>
             </tr>
             
 
             <tr>
-              <td><code>c0b333f0c30d4fa594</code></td>
-              <td><code>phx_81a412bee50cfe</code></td>
+              <td><code>02af90d164ec4cf6bf</code></td>
+              <td><code>phx_4da487e6372736</code></td>
               <td><strong>write_file</strong></td>
               <td><span class="badge badge-resumed">RESUMED</span></td>
-              <td class="code-cell"><code>{&quot;path&quot;: &quot;C:\\Users\\ratin\\AppData\\Local\\Temp\\phoenix...</code></td>
-              <td class="text-muted">10:55:10</td>
+              <td class="code-cell"><code>{&quot;path&quot;: &quot;/tmp/phoenix-demo-7p4twj6_/b.txt&quot;, &quot;content&quot;: &quot;...</code></td>
+              <td class="text-muted">09:29:20</td>
             </tr>
             
 
             <tr>
-              <td><code>c0b333f0c30d4fa594</code></td>
-              <td><code>phx_81a412bee50cfe</code></td>
+              <td><code>02af90d164ec4cf6bf</code></td>
+              <td><code>phx_4da487e6372736</code></td>
               <td><strong>write_file</strong></td>
               <td><span class="badge badge-ok">OK</span></td>
-              <td class="code-cell"><code>{&quot;path&quot;: &quot;C:\\Users\\ratin\\AppData\\Local\\Temp\\phoenix...</code></td>
-              <td class="text-muted">10:55:10</td>
+              <td class="code-cell"><code>{&quot;path&quot;: &quot;/tmp/phoenix-demo-7p4twj6_/b.txt&quot;, &quot;content&quot;: &quot;...</code></td>
+              <td class="text-muted">09:29:20</td>
             </tr>
             
 
             <tr>
-              <td><code>a868c725d247432581</code></td>
-              <td><code>phx_84caa9c966c345</code></td>
+              <td><code>8727f667bf194764a0</code></td>
+              <td><code>phx_e8e083f70c521b</code></td>
               <td><strong>write_file</strong></td>
               <td><span class="badge badge-recovered">RECOVERED_LANDED</span></td>
-              <td class="code-cell"><code>{&quot;path&quot;: &quot;C:\\Users\\ratin\\AppData\\Local\\Temp\\phoenix...</code></td>
-              <td class="text-muted">10:55:10</td>
+              <td class="code-cell"><code>{&quot;path&quot;: &quot;/tmp/phoenix-demo-7p4twj6_/c.txt&quot;, &quot;content&quot;: &quot;...</code></td>
+              <td class="text-muted">09:29:20</td>
             </tr>
             
           </tbody>
@@ -766,7 +766,7 @@
 
     <!-- Footer -->
     <footer class="footer">
-      Phoenix v0.3.0 &bull; High-Assurance Transactional Execution &amp; Fault Injection Suite
+      Phoenix v2.0.0 &bull; High-Assurance Transactional Execution &amp; Fault Injection Suite
     </footer>
   </div>
 </body>

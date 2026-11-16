@@ -1,9 +1,14 @@
 {
   "name": "phoenix",
+  "label": "Phoenix",
   "title": "Phoenix WAL & Wind Tunnel",
   "description": "Crash-proof SQLite WAL ledger, pre/post state fingerprinting, and ReplayLab ddmin wind tunnel",
+  "icon": "Shield",
   "version": "2.0.0",
+  "tab": {
+    "path": "/phoenix",
+    "position": "after:skills"
+  },
   "entry": "dist/index.js",
-  "api": "plugin_api.py",
-  "api_prefix": "/api/plugins/phoenix"
+  "api": "plugin_api.py"
 }

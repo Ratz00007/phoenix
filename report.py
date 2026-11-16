@@ -155,7 +155,7 @@ def generate_html_report(app: Any, output_path: str | None = None) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Phoenix v0.3.1 WAL & Wind Tunnel Forensic Report</title>
+  <title>Phoenix v2.0.0 WAL & Wind Tunnel Forensic Report</title>
   <style>
     :root {{
       --bg: #090d16;
@@ -630,7 +630,7 @@ def generate_html_report(app: Any, output_path: str | None = None) -> str:
       <div class="header-title-wrap">
         <div class="header-icon">&#x1F525;</div>
         <div>
-          <h1 class="header-title">Phoenix v0.3.1 Transactional WAL Hypervisor &amp; ReplayLab Wind Tunnel Report</h1>
+          <h1 class="header-title">Phoenix v2.0.0 Transactional WAL Hypervisor &amp; ReplayLab Wind Tunnel Report</h1>
           <div class="header-sub">Crash-Proof SQLite WAL Ledger &bull; Pre/Post State Fingerprinting &bull; Zeller ddmin Oracle</div>
         </div>
       </div>
@@ -733,7 +733,7 @@ def generate_html_report(app: Any, output_path: str | None = None) -> str:
 
     <!-- Footer -->
     <footer class="footer">
-      Phoenix v0.3.1 &bull; High-Assurance Transactional Execution &amp; Fault Injection Suite
+      Phoenix v2.0.0 &bull; High-Assurance Transactional Execution &amp; Fault Injection Suite
     </footer>
   </div>
 </body>
