@@ -231,7 +231,7 @@ def main() -> None:
         print("  - Developer agent edits config/auth (a.txt commits via middleware).")
         print("  - Agent journals intent for b.txt with pre-state fingerprint.")
         print("  - Process 1 killed (SIGKILL / timeout) BEFORE writing b.txt to disk.")
-        print("  - Fresh agent resurrects: /recover replays b.txt exactly once.")
+        print("  - Fresh agent resurrects: /recover replays b.txt once.")
 
         app = App()
         app.bind(type("Ctx", (), {"dispatch_tool": staticmethod(lambda t, a: raw_tool(a))})())

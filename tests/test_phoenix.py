@@ -481,7 +481,7 @@ class TestRecoverAndFingerprints(Base):
         self._simulate_kill("terminal", {"command": "printf beta > b.txt"})
 
         out = get_app().recover("")
-        self.assertIn("resumed exactly once", out)
+        self.assertIn("replayed once and recorded", out)
         self.assertEqual(len(ctx.dispatched), 1)
         self.assertEqual(ctx.dispatched[0], ("terminal", {"command": "printf beta > b.txt"}))
         self.assertEqual(get_app().journal.stats()["in_flight"], 0)
@@ -605,7 +605,7 @@ class TestToolsAndCLI(Base):
 
         # Human owner runs recover command
         rec_res = get_app().recover()
-        self.assertIn("resumed exactly once", rec_res)
+        self.assertIn("replayed once and recorded", rec_res)
         self.assertEqual(len(get_app().journal.in_flight()), 0)
 
     def test_phoenix_ledger_explain(self):
@@ -1668,6 +1668,33 @@ class TestProductionHardeningRegressions(Base):
             phx.keys._extract_target_paths("patch", {"mode": "patch", "patch": move_patch}),
             ["src/old.py", "src/new.py"],
         )
+
+    def test_keys_v4a_multi_file_and_move_commit(self):
+        a = Path(self.tmp) / "m_a.py"
+        b = Path(self.tmp) / "m_b.py"
+        old = Path(self.tmp) / "m_old.py"
+        new = Path(self.tmp) / "m_new.py"
+        a.write_text("one = 1\n", encoding="utf-8")
+        b.write_text("two = 2\n", encoding="utf-8")
+        old.write_text("moved = 1\n", encoding="utf-8")
+        patch_txt = (
+            "*** Begin Patch\n"
+            f"*** Update File: {a}\n@@\n-one = 1\n+one = 10\n"
+            f"*** Update File: {b}\n@@\n-two = 2\n+two = 20\n"
+            f"*** Move File: {old} -> {new}\n"
+            "*** End Patch\n"
+        )
+        args = {"mode": "patch", "patch": patch_txt}
+        pre = target_fingerprint("patch", args)
+        self.assertEqual(len(pre["targets"]), 4)
+        self.assertFalse(is_target_fully_committed("patch", args, pre))
+        a.write_text("one = 10\n", encoding="utf-8")
+        # only one of three sections landed -> must NOT claim committed
+        self.assertFalse(is_target_fully_committed("patch", args, pre))
+        b.write_text("two = 20\n", encoding="utf-8")
+        self.assertFalse(is_target_fully_committed("patch", args, pre))
+        old.rename(new)
+        self.assertTrue(is_target_fully_committed("patch", args, pre))
 
 
 if __name__ == "__main__":

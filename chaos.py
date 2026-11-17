@@ -155,7 +155,7 @@ def run_chaos_trial(
 
         if boundary == "before_intent":
             # Nothing was journaled before crash; re-dispatching the operation once
-            # must execute cleanly exactly once.
+            # must execute cleanly once.
             in_flight_before = len(app2.journal.in_flight())
             fresh_attempt = uuid.uuid4().hex
             fresh_pre_fp = target_fingerprint("write_file", args)

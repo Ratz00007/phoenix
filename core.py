@@ -188,7 +188,7 @@ class App:
             for attempt_id, op_id, tool, args_json, sid, turn_id, ts in inflight:
                 args_short = args_json if len(args_json) <= 96 else args_json[:93] + "..."
                 lines.append(f"  - {tool}  {op_id}  {args_short}")
-            lines.append("run /recover (or /phoenix recover) to finish them exactly once.")
+            lines.append("run /recover (or /phoenix recover) to complete them.")
         else:
             lines.append("nothing in flight — every recorded operation has a known outcome.")
             lines.append("Run '/phoenix windtunnel' to launch the 6-check fault-injection suite.")
@@ -453,7 +453,7 @@ class App:
                     except TypeError:
                         j.mark_resumed(attempt_id, result=result)
                     resumed += 1
-                    lines.append("  -> resumed exactly once")
+                    lines.append("  -> replayed once and recorded")
             except Exception as exc:  # noqa: BLE001 — recovery must record, never crash
                 j.record_outcome(recov_attempt_id, op_id, "error", error=repr(exc))
                 j.record_outcome(attempt_id, op_id, "error", error=repr(exc))

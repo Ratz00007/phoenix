@@ -44,7 +44,7 @@ def register(ctx):
     ctx.register_command(
         "recover",
         commands.recover_cmd,
-        description="Recover every interrupted operation exactly once: /recover [op_id ...]",
+        description="Recover interrupted operations after a crash: /recover [op_id ...]",
         args_hint="[op_id ...]",
     )
 

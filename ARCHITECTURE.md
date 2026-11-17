@@ -21,10 +21,10 @@ phoenix/
 ├── chaos.py             # Deterministic seeded crash-boundary engine (4 crash boundaries)
 ├── selfcheck.py         # Hermes plugin doctor self-check script
 ├── demo.py              # 4-act end-to-end crash-and-recover + --chaos demonstration
-├── judge_eval.py        # Single-command audit scorecard (126 unit tests, doctor, windtunnel, chaos)
+├── judge_eval.py        # Single-command audit scorecard (127 unit tests, doctor, windtunnel, chaos)
 ├── dashboard/           # Hermes Web Dashboard extension (manifest.json, plugin_api.py, dist/index.js)
 ├── desktop/             # Hermes Desktop SDK surface (desktop/plugin.js)
-└── tests/               # 126 unit tests (unittest discover -s tests)
+└── tests/               # 127 unit tests (unittest discover -s tests)
 ```
 
 ---

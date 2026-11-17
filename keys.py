@@ -237,6 +237,55 @@ def is_hermes_error_result(result) -> tuple[bool, str | None]:
     return False, None
 
 
+_V4A_SECTION_RE = re.compile(r"^\*\*\*\s*(Update|Add|Delete|Move)\s+File:\s*([^\r\n]+)", re.MULTILINE)
+
+
+def _resolve_target(p_str: str, args: dict) -> Path:
+    base_dir = args.get("workdir") or os.environ.get("PHOENIX_WORKDIR") or os.getcwd()
+    if os.path.isabs(p_str):
+        return Path(os.path.abspath(p_str))
+    return Path(os.path.abspath(os.path.join(base_dir, p_str)))
+
+
+def _v4a_multi_committed(args: dict, diff_str: str, pre_fp: dict | None) -> bool:
+    """Verify every file section of a Hermes V4A patch (multi-file and Move patches).
+
+    Returns True only when each section's effect is observable on disk.
+    """
+    matches = list(_V4A_SECTION_RE.finditer(diff_str))
+    if not matches:
+        return False
+    pre_targets: dict[str, dict] = {}
+    if isinstance(pre_fp, dict):
+        for t in pre_fp.get("targets") or []:
+            if isinstance(t, dict) and "path" in t:
+                pre_targets[str(t["path"])] = t
+    for i, m in enumerate(matches):
+        kind, rest = m.group(1), m.group(2).strip()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(diff_str)
+        body = diff_str[m.end():end]
+        if kind == "Move":
+            parts = re.split(r"\s*->\s*", rest, maxsplit=1)
+            if len(parts) != 2:
+                return False
+            src, dst = _resolve_target(parts[0].strip(), args), _resolve_target(parts[1].strip(), args)
+            if not dst.is_file() or src.exists():
+                return False
+            if str(src) in pre_targets and pre_targets[str(src)].get("exists") is not True:
+                return False
+            continue
+        target = _resolve_target(rest, args)
+        pre_t = pre_targets.get(str(target))
+        if kind == "Delete":
+            if target.exists() or not (isinstance(pre_t, dict) and pre_t.get("exists") is True):
+                return False
+            continue
+        sub_args = {"path": str(target), "patch": body}
+        if not is_target_fully_committed("patch", sub_args, pre_t):
+            return False
+    return True
+
+
 def is_target_fully_committed(
     tool_name: str,
     args: Any,
@@ -295,6 +344,14 @@ def is_target_fully_committed(
             or args.get("file_path")
             or (pre_fp.get("path") if isinstance(pre_fp, dict) else None)
         )
+        v4a_text = args.get("patch") or args.get("diff") or ""
+        if (
+            not (args.get("path") or args.get("file_path"))
+            and isinstance(v4a_text, str)
+            and len(_V4A_SECTION_RE.findall(v4a_text)) >= 1
+            and (len(_V4A_SECTION_RE.findall(v4a_text)) > 1 or re.search(r"^\*\*\*\s*Move\s+File:", v4a_text, re.MULTILINE))
+        ):
+            return _v4a_multi_committed(args, v4a_text, pre_fp)
         if not cand:
             extracted = _extract_target_paths(tool_name, args)
             cand = extracted[0] if extracted else None
