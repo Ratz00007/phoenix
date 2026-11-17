@@ -517,9 +517,16 @@ class App:
         except ImportError:
             _tfp = target_fingerprint
 
-        lines = [
+        header = (
             f"[PHOENIX WAL CRASH ALERT] {len(visible_inflight)} interrupted tool operation(s) detected from a prior crash/timeout:"
-        ]
+        )
+        footer = "Advise the user to run /recover in chat to safely complete interrupted operations."
+        max_alert_chars = 3500
+        reserve_chars = len(footer) + 96
+        lines = [header]
+        current_len = len(header)
+        omitted = 0
+
         j = self._journal()
         for row in visible_inflight:
             attempt_id, op_id, tool, args_json, session_id, turn_id, ts = row
@@ -579,13 +586,20 @@ class App:
                         j.mark_resumed(recov_id, result=landed_result, status="recovered_landed", post_fp=post_fp)
                     except TypeError:
                         j.mark_resumed(recov_id, result=landed_result)
-                lines.append(f"  - [{clean_tool}] {clean_op}: target ALREADY mutated on disk -> marked recovered_landed")
+                entry_line = f"  - [{clean_tool}] {clean_op}: target ALREADY mutated on disk -> marked recovered_landed"
             else:
-                lines.append(f"  - [{clean_tool}] {clean_op}: target unchanged -> needs replay (run /recover)")
+                entry_line = f"  - [{clean_tool}] {clean_op}: target unchanged -> needs replay (run /recover)"
 
-        lines.append(
-            "Advise the user to run /recover in chat to safely complete interrupted operations."
-        )
+            if omitted == 0 and (current_len + 1 + len(entry_line) + reserve_chars <= max_alert_chars):
+                lines.append(entry_line)
+                current_len += 1 + len(entry_line)
+            else:
+                omitted += 1
+
+        if omitted > 0:
+            lines.append(f"  ... and {omitted} more interrupted operation(s) (run /phoenix status)")
+
+        lines.append(footer)
         return "\n".join(lines)
 
     def _journal(self) -> Journal:

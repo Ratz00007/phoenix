@@ -95,14 +95,23 @@ def _extract_target_paths(tool_name: str, args) -> list[str]:
         if s and s != "/dev/null" and s not in paths:
             paths.append(s)
 
-    # 2. Unified diff scanning
-    if tool_name == "patch" or "patch" in args or "diff" in args:
+    # 2. Unified diff & Hermes V4A patch scanning
+    if tool_name in ("patch", "apply_patch", "edit_file") or "patch" in args or "diff" in args:
         diff_str = args.get("patch") or args.get("diff") or args.get("content") or ""
         if isinstance(diff_str, str) and diff_str:
             for m in re.finditer(r"^\+\+\+\s+(?:b/)?([^\t\r\n]+)", diff_str, re.MULTILINE):
                 target_p = m.group(1).strip()
                 if target_p and target_p != "/dev/null" and target_p not in paths:
                     paths.append(target_p)
+            for m in re.finditer(r"^\*\*\*\s*(?:Update|Add|Delete)\s+File:\s*([^\r\n]+)", diff_str, re.MULTILINE):
+                target_p = m.group(1).strip()
+                if target_p and target_p != "/dev/null" and target_p not in paths:
+                    paths.append(target_p)
+            for m in re.finditer(r"^\*\*\*\s*Move\s+File:\s*(.+?)\s*->\s*([^\r\n]+)", diff_str, re.MULTILINE):
+                for grp in (m.group(1), m.group(2)):
+                    target_p = grp.strip()
+                    if target_p and target_p != "/dev/null" and target_p not in paths:
+                        paths.append(target_p)
 
     # 3. Terminal/bash/shell redirection and tee
     if tool_name in ("terminal", "bash", "shell") and isinstance(args.get("command"), str):
@@ -303,9 +312,25 @@ def is_target_fully_committed(
         else:
             resolved = os.path.abspath(os.path.join(base_dir, p_str))
 
+        diff_str = (
+            args.get("patch")
+            or args.get("diff")
+            or args.get("content")
+            or ""
+        )
+
         p = Path(resolved)
         try:
             if not p.is_file():
+                if (
+                    isinstance(diff_str, str)
+                    and re.search(r"^\*\*\*\s*Delete\s+File:", diff_str, re.MULTILINE)
+                    and not re.search(r"^\*\*\*\s*(?:Update|Add|Move)\s+File:", diff_str, re.MULTILINE)
+                    and not p.exists()
+                    and isinstance(pre_fp, dict)
+                    and pre_fp.get("exists") is True
+                ):
+                    return True
                 return False
             file_bytes = p.read_bytes()
             actual_sha = hashlib.sha256(file_bytes).hexdigest()
@@ -314,13 +339,6 @@ def is_target_fully_committed(
             return False
 
         pre_sha = pre_fp.get("sha256") if isinstance(pre_fp, dict) else None
-
-        diff_str = (
-            args.get("patch")
-            or args.get("diff")
-            or args.get("content")
-            or ""
-        )
         repl_key_present = any(k in args for k in ("Replacement", "replacement", "new_str", "new_string"))
         repl = None
         for k in ("Replacement", "replacement", "new_str", "new_string"):

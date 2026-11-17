@@ -7,7 +7,7 @@
 
 [![Catalog PR #154408](https://img.shields.io/badge/Catalog%20PR-%23154408-orange.svg)](https://github.com/NousResearch/hermes-agent/pull/154408)
 [![Hermes Validate](https://img.shields.io/badge/hermes%20validate-passed-brightgreen.svg)](#3-quickstart--verification)
-[![Tests](https://img.shields.io/badge/tests-124%2F124%20passed-brightgreen.svg)](#3-quickstart--verification)
+[![Tests](https://img.shields.io/badge/tests-126%2F126%20passed-brightgreen.svg)](#3-quickstart--verification)
 [![Dependencies](https://img.shields.io/badge/dependencies-0%20(stdlib%20only)-blue.svg)](#5-security--disclosure)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -97,7 +97,7 @@ hermes plugins validate .
 # 3. Run the 4-Act crash-and-recover + Zeller ddmin rehearsal (< 1s)
 python demo.py
 
-# 4. Run the complete verification scorecard (124 unit tests, doctor checks, wind tunnel, chaos engine)
+# 4. Run the complete verification scorecard (126 unit tests, doctor checks, wind tunnel, chaos engine)
 python judge_eval.py
 ```
 

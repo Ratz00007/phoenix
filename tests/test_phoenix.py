@@ -535,6 +535,10 @@ class TestRecoverAndFingerprints(Base):
         out = get_app().recover("")
         self.assertIn("failed: host unreachable", out)
         self.assertEqual(get_app().journal.stats()["errors"], 1)
+        self.assertEqual(get_app().journal.in_flight(), [])
+        row = get_app().journal.get(attempt)
+        self.assertIsNotNone(row)
+        self.assertEqual(row[4], "error")
 
     def test_phoenix_guard_toggle_command(self):
         get_app().bind(FakeCtx())
@@ -1600,6 +1604,70 @@ class TestProductionHardeningRegressions(Base):
         self.assertEqual(replays, 1)
         self.assertEqual(len(j.in_flight()), 0)
         self.assertIn("resumed 1 operation", out)
+
+    def test_system_prompt_alert_bounded_under_4000_chars_with_100_inflight(self):
+        app = get_app()
+        j = app._journal()
+        for i in range(99):
+            j.record_intent(f"att_bulk_{i}", f"op_bulk_{i}", "write_file", {"path": f"/nonexistent/{i}.txt"})
+
+        landed_file = Path(self.tmp) / "late_landed.txt"
+        pre_fp = target_fingerprint("write_file", {"path": str(landed_file)})
+        args = {"path": str(landed_file), "content": "already written late\n"}
+        j.record_intent("att_bulk_99", "op_bulk_99", "write_file", args, pre_fp=pre_fp)
+        landed_file.write_text("already written late\n", encoding="utf-8")
+
+        alert = app.system_prompt_alert()
+        self.assertLessEqual(len(alert), 4000)
+        self.assertIn("100 interrupted tool operation(s)", alert)
+        self.assertIn("more interrupted operation(s)", alert)
+        self.assertIn("run /recover", alert)
+        # Even the 100th row (beyond display cap) must be reconciled on disk
+        late_row = j.get("att_bulk_99")
+        self.assertIsNotNone(late_row)
+        self.assertEqual(late_row[4], "recovered_landed")
+
+    def test_keys_v4a_patch_extracts_paths_and_commits(self):
+        f_upd = Path(self.tmp) / "v4a_upd.py"
+        f_upd.write_text("alpha = 1\nbeta = 2\n", encoding="utf-8")
+        upd_patch = (
+            "*** Begin Patch\n"
+            f"*** Update File: {f_upd}\n"
+            "@@\n"
+            " alpha = 1\n"
+            "-beta = 2\n"
+            "+beta = 99\n"
+            "*** End Patch\n"
+        )
+        self.assertEqual(phx.keys._extract_target_paths("patch", {"mode": "patch", "patch": upd_patch}), [str(f_upd)])
+        pre_upd = target_fingerprint("patch", {"mode": "patch", "patch": upd_patch})
+        self.assertIsNotNone(pre_upd)
+        self.assertFalse(is_target_fully_committed("patch", {"mode": "patch", "patch": upd_patch}, pre_upd))
+        f_upd.write_text("alpha = 1\nbeta = 99\n", encoding="utf-8")
+        self.assertTrue(has_target_changed(pre_upd))
+        self.assertTrue(is_target_fully_committed("patch", {"mode": "patch", "patch": upd_patch}, pre_upd))
+
+        f_add = Path(self.tmp) / "v4a_add.py"
+        add_patch = f"*** Begin Patch\n*** Add File: {f_add}\n+created = True\n*** End Patch\n"
+        pre_add = target_fingerprint("patch", {"mode": "patch", "patch": add_patch})
+        self.assertFalse(pre_add["exists"])
+        self.assertFalse(is_target_fully_committed("patch", {"mode": "patch", "patch": add_patch}, pre_add))
+        f_add.write_text("created = True\n", encoding="utf-8")
+        self.assertTrue(is_target_fully_committed("patch", {"mode": "patch", "patch": add_patch}, pre_add))
+
+        f_del = Path(self.tmp) / "v4a_del.py"
+        f_del.write_text("bye = True\n", encoding="utf-8")
+        del_patch = f"*** Begin Patch\n*** Delete File: {f_del}\n*** End Patch\n"
+        pre_del = target_fingerprint("patch", {"mode": "patch", "patch": del_patch})
+        self.assertFalse(is_target_fully_committed("patch", {"mode": "patch", "patch": del_patch}, pre_del))
+        f_del.unlink()
+        self.assertTrue(is_target_fully_committed("patch", {"mode": "patch", "patch": del_patch}, pre_del))
+
+        move_patch = "*** Begin Patch\n*** Move File: src/old.py -> src/new.py\n*** End Patch\n"
+        self.assertEqual(
+            phx.keys._extract_target_paths("patch", {"mode": "patch", "patch": move_patch}),
+            ["src/old.py", "src/new.py"],
+        )
 
 
 if __name__ == "__main__":
