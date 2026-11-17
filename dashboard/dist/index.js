@@ -15,6 +15,7 @@
   var e = React.createElement;
   var useState = (SDK.hooks && SDK.hooks.useState) || React.useState;
   var useEffect = (SDK.hooks && SDK.hooks.useEffect) || React.useEffect;
+  var useRef = (SDK.hooks && SDK.hooks.useRef) || React.useRef;
 
   function fetchJson(path, opts) {
     if (typeof SDK.fetchJSON === "function") {
@@ -142,14 +143,42 @@
     if (!text || text === "—") {
       return;
     }
+    var value = String(text);
+    var fallbackCopy = function () {
+      var prevFocus = document.activeElement;
+      try {
+        var ta = document.createElement("textarea");
+        ta.value = value;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        var copied = document.execCommand("copy");
+        document.body.removeChild(ta);
+        if (prevFocus && typeof prevFocus.focus === "function") {
+          prevFocus.focus();
+        }
+        if (copied && typeof onDone === "function") {
+          onDone();
+        }
+      } catch (_copyErr) {}
+    };
     if (navigator && navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-      navigator.clipboard.writeText(String(text)).then(onDone).catch(function () {});
+      navigator.clipboard.writeText(value).then(onDone).catch(fallbackCopy);
+    } else {
+      fallbackCopy();
     }
   }
 
   var MONO_FONT = 'var(--theme-font-mono, ui-monospace, "SF Mono", Menlo, Consolas, monospace)';
 
   function PhoenixDashboardPanel() {
+    var mountedRef = useRef(true);
+    var statusAbortRef = useRef(null);
+    var timelineAbortRef = useRef(null);
+    var wtAbortRef = useRef(null);
+
     var statusHook = useState({ loading: true, data: null, error: null });
     var statusState = statusHook[0];
     var setStatusState = statusHook[1];
@@ -157,6 +186,10 @@
     var timelineHook = useState([]);
     var timelineEvents = timelineHook[0];
     var setTimelineEvents = timelineHook[1];
+
+    var timelineErrHook = useState(null);
+    var timelineError = timelineErrHook[0];
+    var setTimelineError = timelineErrHook[1];
 
     var searchHook = useState("");
     var search = searchHook[0];
@@ -173,42 +206,109 @@
     var copiedHook = useState("");
     var copiedKey = copiedHook[0];
     var setCopiedKey = copiedHook[1];
+    var copiedTimerRef = useRef(null);
+
+    var triggerCopied = function (key) {
+      setCopiedKey(key);
+      if (copiedTimerRef.current) {
+        clearTimeout(copiedTimerRef.current);
+      }
+      copiedTimerRef.current = setTimeout(function () {
+        if (mountedRef.current) {
+          setCopiedKey("");
+        }
+        copiedTimerRef.current = null;
+      }, 1500);
+    };
+
+    var narrowHook = useState(function () {
+      return typeof window !== "undefined" && typeof window.matchMedia === "function"
+        ? window.matchMedia("(max-width: 780px)").matches
+        : false;
+    });
+    var isNarrow = narrowHook[0];
+    var setIsNarrow = narrowHook[1];
 
     var wtHook = useState({ running: false, report: null, error: null });
     var wtState = wtHook[0];
     var setWtState = wtHook[1];
 
     var fetchAll = function () {
-      fetchJson("/api/plugins/phoenix/status")
+      var statusSignal;
+      if (typeof AbortController === "function") {
+        if (statusAbortRef.current) {
+          statusAbortRef.current.abort();
+        }
+        statusAbortRef.current = new AbortController();
+        statusSignal = statusAbortRef.current.signal;
+      }
+      fetchJson("/api/plugins/phoenix/status", statusSignal ? { signal: statusSignal } : undefined)
         .then(function (payload) {
+          if (!mountedRef.current) {
+            return;
+          }
           setStatusState({ loading: false, data: payload, error: null });
         })
         .catch(function (err) {
+          if (!mountedRef.current || (err && err.name === "AbortError")) {
+            return;
+          }
           setStatusState(function (prev) {
             return { loading: false, data: prev.data, error: (err && err.message) || String(err) };
           });
         });
 
-      fetchJson("/api/plugins/phoenix/timeline")
+      var timelineSignal;
+      if (typeof AbortController === "function") {
+        if (timelineAbortRef.current) {
+          timelineAbortRef.current.abort();
+        }
+        timelineAbortRef.current = new AbortController();
+        timelineSignal = timelineAbortRef.current.signal;
+      }
+      fetchJson("/api/plugins/phoenix/timeline", timelineSignal ? { signal: timelineSignal } : undefined)
         .then(function (payload) {
+          if (!mountedRef.current) {
+            return;
+          }
+          setTimelineError(null);
           if (payload) {
             setTimelineEvents(normalizeEvents(payload, null));
           }
         })
-        .catch(function () {});
+        .catch(function (err) {
+          if (!mountedRef.current || (err && err.name === "AbortError")) {
+            return;
+          }
+          setTimelineError((err && err.message) || String(err));
+        });
     };
 
     var runWindTunnel = function () {
       setWtState(function (prev) {
         return { running: true, report: prev.report, error: null };
       });
-      fetchJson("/api/plugins/phoenix/windtunnel", { method: "POST" })
+      var wtOpts = { method: "POST" };
+      if (typeof AbortController === "function") {
+        if (wtAbortRef.current) {
+          wtAbortRef.current.abort();
+        }
+        wtAbortRef.current = new AbortController();
+        wtOpts.signal = wtAbortRef.current.signal;
+      }
+      fetchJson("/api/plugins/phoenix/windtunnel", wtOpts)
         .then(function (payload) {
+          if (!mountedRef.current) {
+            return;
+          }
           var unwrapped = payload && payload.report ? payload.report : payload;
           setWtState({ running: false, report: unwrapped, error: null });
           fetchAll();
         })
         .catch(function (err) {
+          if (!mountedRef.current || (err && err.name === "AbortError")) {
+            return;
+          }
           setWtState(function (prev) {
             return { running: false, report: prev.report, error: (err && err.message) || String(err) };
           });
@@ -216,10 +316,49 @@
     };
 
     useEffect(function () {
+      mountedRef.current = true;
       fetchAll();
       var interval = setInterval(fetchAll, 5000);
+      var mql = typeof window !== "undefined" && typeof window.matchMedia === "function"
+        ? window.matchMedia("(max-width: 780px)")
+        : null;
+      var onMediaChange = function (ev) {
+        setIsNarrow(Boolean(ev.matches));
+      };
+      if (mql) {
+        setIsNarrow(Boolean(mql.matches));
+        if (typeof mql.addEventListener === "function") {
+          mql.addEventListener("change", onMediaChange);
+        } else if (typeof mql.addListener === "function") {
+          mql.addListener(onMediaChange);
+        }
+      }
       return function () {
+        mountedRef.current = false;
         clearInterval(interval);
+        if (statusAbortRef.current) {
+          statusAbortRef.current.abort();
+          statusAbortRef.current = null;
+        }
+        if (timelineAbortRef.current) {
+          timelineAbortRef.current.abort();
+          timelineAbortRef.current = null;
+        }
+        if (wtAbortRef.current) {
+          wtAbortRef.current.abort();
+          wtAbortRef.current = null;
+        }
+        if (copiedTimerRef.current) {
+          clearTimeout(copiedTimerRef.current);
+          copiedTimerRef.current = null;
+        }
+        if (mql) {
+          if (typeof mql.removeEventListener === "function") {
+            mql.removeEventListener("change", onMediaChange);
+          } else if (typeof mql.removeListener === "function") {
+            mql.removeListener(onMediaChange);
+          }
+        }
       };
     }, []);
 
@@ -270,7 +409,7 @@
       return e(
         "div",
         { style: containerStyle },
-        e("div", { style: headerStyle }, e("strong", null, "Phoenix Flight Recorder")),
+        e("div", { style: headerStyle }, e("h2", { style: { margin: 0, fontSize: "18px", fontWeight: 700 } }, "Phoenix Flight Recorder")),
         e(
           "div",
           { style: { padding: "40px", textAlign: "center", color: "var(--color-muted-foreground, #9ca3af)" } },
@@ -283,16 +422,16 @@
       return e(
         "div",
         { style: containerStyle },
-        e("div", { style: headerStyle }, e("strong", null, "Phoenix Flight Recorder")),
+        e("div", { style: headerStyle }, e("h2", { style: { margin: 0, fontSize: "18px", fontWeight: 700 } }, "Phoenix Flight Recorder")),
         e(
           "div",
           {
             style: {
               padding: "14px",
-              backgroundColor: "rgba(239, 68, 68, 0.12)",
+              backgroundColor: "color-mix(in srgb, var(--color-destructive, #ef4444) 12%, transparent)",
               border: "1px solid var(--color-destructive, #ef4444)",
               borderRadius: "8px",
-              color: "var(--color-destructive, #fca5a5)"
+              color: "var(--color-destructive, #ef4444)"
             }
           },
           "Failed to load Phoenix status: " + statusState.error
@@ -353,7 +492,7 @@
         "div",
         {
           key: label,
-          style: Object.assign({}, cardBoxStyle, { padding: "12px 14px" })
+          style: Object.assign({}, cardBoxStyle, { padding: "12px 14px", minWidth: 0 })
         },
         e(
           "div",
@@ -412,13 +551,13 @@
 
       return e(
         "div",
-        { style: { padding: "14px", display: "flex", flexDirection: "column", gap: "12px" } },
+        { style: { padding: "14px", display: "flex", flexDirection: "column", gap: "12px", minWidth: 0 } },
         e(
           "div",
           { style: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "8px" } },
           e(
             "div",
-            { style: { display: "flex", alignItems: "center", gap: "8px" } },
+            { style: { display: "flex", alignItems: "center", gap: "8px", minWidth: 0 } },
             e("span", { style: { width: "8px", height: "8px", borderRadius: "50%", backgroundColor: statusColor(selectedEvent.status), display: "inline-block" } }),
             e("strong", { style: { fontFamily: MONO_FONT, fontSize: "14px" } }, selectedEvent.tool || selectedEvent.tool_name || "tool"),
             e(
@@ -446,50 +585,56 @@
           { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "8px" } },
           e(
             "div",
-            { style: Object.assign({}, insetBoxStyle, { padding: "8px 10px" }) },
+            { style: Object.assign({}, insetBoxStyle, { padding: "8px 10px", minWidth: 0 }) },
             e(
               "div",
               { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" } },
               e("span", { style: { fontSize: "10px", color: "var(--color-muted-foreground, #9ca3af)", fontWeight: 700 } }, "ATTEMPT ID"),
-              e(
-                "button",
-                {
-                  type: "button",
-                  style: Object.assign({}, btnStyle, { padding: "2px 6px", fontSize: "10px" }),
-                  onClick: function () {
-                    copyText(attemptId, function () { setCopiedKey("attempt"); });
-                  }
-                },
-                copiedKey === "attempt" ? "Copied" : "Copy"
-              )
+              attemptId !== "—"
+                ? e(
+                    "button",
+                    {
+                      type: "button",
+                      "aria-label": "Copy Attempt ID",
+                      style: Object.assign({}, btnStyle, { padding: "2px 6px", fontSize: "10px" }),
+                      onClick: function () {
+                        copyText(attemptId, function () { triggerCopied("attempt"); });
+                      }
+                    },
+                    copiedKey === "attempt" ? "Copied" : "Copy"
+                  )
+                : null
             ),
             e("div", { style: { fontFamily: MONO_FONT, fontSize: "11px", wordBreak: "break-all" } }, attemptId)
           ),
           e(
             "div",
-            { style: Object.assign({}, insetBoxStyle, { padding: "8px 10px" }) },
+            { style: Object.assign({}, insetBoxStyle, { padding: "8px 10px", minWidth: 0 }) },
             e(
               "div",
               { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" } },
               e("span", { style: { fontSize: "10px", color: "var(--color-muted-foreground, #9ca3af)", fontWeight: 700 } }, "OP ID / IDEMPOTENCY KEY"),
-              e(
-                "button",
-                {
-                  type: "button",
-                  style: Object.assign({}, btnStyle, { padding: "2px 6px", fontSize: "10px" }),
-                  onClick: function () {
-                    copyText(idempKey, function () { setCopiedKey("op"); });
-                  }
-                },
-                copiedKey === "op" ? "Copied" : "Copy"
-              )
+              idempKey !== "—"
+                ? e(
+                    "button",
+                    {
+                      type: "button",
+                      "aria-label": "Copy Op ID",
+                      style: Object.assign({}, btnStyle, { padding: "2px 6px", fontSize: "10px" }),
+                      onClick: function () {
+                        copyText(idempKey, function () { triggerCopied("op"); });
+                      }
+                    },
+                    copiedKey === "op" ? "Copied" : "Copy"
+                  )
+                : null
             ),
             e("div", { style: { fontFamily: MONO_FONT, fontSize: "11px", wordBreak: "break-all" } }, idempKey)
           )
         ),
         e(
           "div",
-          { style: Object.assign({}, insetBoxStyle, { padding: "10px" }) },
+          { style: Object.assign({}, insetBoxStyle, { padding: "10px", minWidth: 0 }) },
           e(
             "div",
             { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" } },
@@ -498,12 +643,14 @@
           ),
           e(
             "div",
-            { style: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", fontFamily: MONO_FONT, fontSize: "11px" } },
+            { style: { display: "grid", gridTemplateColumns: isNarrow ? "1fr" : "1fr 1fr", gap: "8px", fontFamily: MONO_FONT, fontSize: "11px" } },
             e(
               "div",
               {
                 style: {
                   padding: "6px",
+                  minWidth: 0,
+                  overflowX: "auto",
                   backgroundColor: "var(--color-card, #111827)",
                   border: "1px solid var(--color-border, #1f293d)",
                   borderRadius: "4px",
@@ -517,6 +664,8 @@
               {
                 style: {
                   padding: "6px",
+                  minWidth: 0,
+                  overflowX: "auto",
                   backgroundColor: "var(--color-card, #111827)",
                   border: "1px solid var(--color-border, #1f293d)",
                   borderRadius: "4px",
@@ -529,7 +678,7 @@
         ),
         e(
           "div",
-          { style: Object.assign({}, insetBoxStyle, { padding: "10px" }) },
+          { style: Object.assign({}, insetBoxStyle, { padding: "10px", minWidth: 0 }) },
           e("div", { style: { fontSize: "11px", fontWeight: 600, color: "var(--color-muted-foreground, #9ca3af)", marginBottom: "4px" } }, "Redacted Arguments"),
           e(
             "pre",
@@ -539,7 +688,7 @@
         ),
         e(
           "div",
-          { style: Object.assign({}, insetBoxStyle, { padding: "10px" }) },
+          { style: Object.assign({}, insetBoxStyle, { padding: "10px", minWidth: 0 }) },
           e(
             "div",
             { style: { fontSize: "11px", fontWeight: 600, color: "var(--color-muted-foreground, #9ca3af)", marginBottom: "4px" } },
@@ -554,7 +703,7 @@
                 fontSize: "11px",
                 whiteSpace: "pre-wrap",
                 wordBreak: "break-word",
-                color: selectedEvent.error ? "var(--color-destructive, #fca5a5)" : "var(--color-card-foreground, #e5e7eb)"
+                color: selectedEvent.error ? "var(--color-destructive, #ef4444)" : "var(--color-card-foreground, #e5e7eb)"
               }
             },
             selectedEvent.error ? String(selectedEvent.error) : formatJson(resultPayload)
@@ -581,7 +730,7 @@
               display: "inline-block"
             }
           }),
-          e("span", { style: { fontSize: "18px", fontWeight: 700 } }, "Phoenix Flight Recorder v2.0.0")
+          e("h2", { style: { margin: 0, fontSize: "18px", fontWeight: 700 } }, "Phoenix Flight Recorder v2.0.0")
         ),
         e(
           "div",
@@ -636,7 +785,7 @@
         {
           style: {
             display: "grid",
-            gridTemplateColumns: "minmax(260px, 360px) 1fr",
+            gridTemplateColumns: isNarrow ? "1fr" : "minmax(260px, 360px) 1fr",
             gap: "12px",
             marginBottom: "16px"
           }
@@ -648,12 +797,14 @@
               padding: "12px",
               display: "flex",
               flexDirection: "column",
-              gap: "8px"
+              gap: "8px",
+              minWidth: 0
             })
           },
           e("input", {
             type: "text",
             value: search,
+            "aria-label": "Filter tool, op_id, attempt_id",
             placeholder: "Filter tool, op_id, attempt_id...",
             onChange: function (ev) { setSearch(ev.target.value); },
             style: {
@@ -677,6 +828,7 @@
                 {
                   key: st,
                   type: "button",
+                  "aria-pressed": active,
                   onClick: function () { setStatusFilter(st); },
                   style: Object.assign({}, btnStyle, {
                     padding: "3px 8px",
@@ -690,6 +842,21 @@
               );
             })
           ),
+          timelineError
+            ? e(
+                "div",
+                {
+                  style: {
+                    padding: "8px 10px",
+                    borderRadius: "6px",
+                    border: "1px solid var(--color-destructive, #ef4444)",
+                    color: "var(--color-destructive, #ef4444)",
+                    fontSize: "11px"
+                  }
+                },
+                "Timeline sync error: " + timelineError
+              )
+            : null,
           e(
             "div",
             { style: { maxHeight: "360px", overflowY: "auto", display: "flex", flexDirection: "column", gap: "6px" } },
@@ -704,6 +871,7 @@
                     {
                       key: key,
                       type: "button",
+                      "aria-current": isSelected ? "true" : undefined,
                       onClick: function () { setSelectedId(key); },
                       style: {
                         textAlign: "left",
@@ -719,8 +887,8 @@
                     e(
                       "div",
                       { style: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: "6px" } },
-                      e("span", { style: { fontFamily: MONO_FONT, fontSize: "12px", fontWeight: 600 } }, ev.tool || ev.tool_name || "tool"),
-                      e("span", { style: { fontSize: "10px", color: statusColor(ev.status), fontWeight: 700 } }, ev.status || "unknown")
+                      e("span", { style: { fontFamily: MONO_FONT, fontSize: "12px", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, ev.tool || ev.tool_name || "tool"),
+                      e("span", { style: { fontSize: "10px", color: statusColor(ev.status), fontWeight: 700, flexShrink: 0 } }, ev.status || "unknown")
                     ),
                     e(
                       "div",
@@ -734,7 +902,7 @@
         ),
         e(
           "div",
-          { style: Object.assign({}, cardBoxStyle, { minHeight: "360px" }) },
+          { style: Object.assign({}, cardBoxStyle, { minHeight: "360px", minWidth: 0 }) },
           renderInspector()
         )
       ),
@@ -753,7 +921,7 @@
               )
             : null
         ),
-        wtState.error ? e("div", { style: { color: "var(--color-destructive, #fca5a5)", fontSize: "12px", marginBottom: "8px" } }, wtState.error) : null,
+        wtState.error ? e("div", { style: { color: "var(--color-destructive, #ef4444)", fontSize: "12px", marginBottom: "8px" } }, wtState.error) : null,
         wtChecks.length > 0
           ? e(
               "div",

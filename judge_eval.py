@@ -14,7 +14,6 @@ Usage:
 
 from __future__ import annotations
 
-import io
 import os
 import re
 import subprocess
@@ -118,10 +117,13 @@ def run_windtunnel_audit() -> tuple[bool, dict]:
 
     return passed, {
         "ddmin_steps": ddmin_res.get("minimal_steps"),
-        "ddmin_tests": ddmin_res.get("tests_executed"),
+        "ddmin_tests": ddmin_res.get("replay_runs"),
+        "ddmin_elapsed_ms": ddmin_res.get("elapsed_ms"),
+        "trace_steps": len(HERMES_DEV_TRACE),
+        "trace_mutations": sum(1 for s in HERMES_DEV_TRACE if s.get("mutates")),
         "culprit": ddmin_res.get("minimal_counterexample"),
         "suite_passed": suite_res.get("passed"),
-        "runs": suite_res.get("runs"),
+        "runs": runs_val if (runs_val := suite_res.get("summary", {}).get("runs")) is not None else 2,
         "elapsed": elapsed,
     }
 
@@ -168,7 +170,7 @@ def main(silent: bool = False, skip_unit_tests: bool = False) -> int:
         width = 82
         print()
         print(f"{CYAN}{'=' * width}{RESET}")
-        print(f"{BOLD}{CYAN}{'PHOENIX v2.0.0 — OFFICIAL JUDGE EVALUATION SCORECARD':^{width}}{RESET}")
+        print(f"{BOLD}{CYAN}{'PHOENIX v2.0.0 — OFFICIAL AUDIT & VERIFICATION SCORECARD':^{width}}{RESET}")
         print(f"{CYAN}{'=' * width}{RESET}")
         print()
 
@@ -191,7 +193,11 @@ def main(silent: bool = False, skip_unit_tests: bool = False) -> int:
         print(f"  {status_tag} {BOLD}Developer Wind Tunnel & Zeller ddmin:{RESET}")
         culprit_tool = (wt_data.get("culprit") or {}).get("tool", "write_file")
         culprit_path = ((wt_data.get("culprit") or {}).get("args") or {}).get("path", "dist/bundle.js")
-        print(f"         {GREEN}✓{RESET} HERMES_DEV_TRACE (8 steps, 3 mutations) isolated to 1 step in {wt_data.get('elapsed', 0)*1000:.1f}ms")
+        t_steps = wt_data.get("trace_steps", 8)
+        t_muts = wt_data.get("trace_mutations", 5)
+        ddmin_ms = wt_data.get("ddmin_elapsed_ms")
+        ms_display = f"{ddmin_ms:.1f}ms" if isinstance(ddmin_ms, (int, float)) else f"{wt_data.get('elapsed', 0)*1000:.1f}ms"
+        print(f"         {GREEN}✓{RESET} HERMES_DEV_TRACE ({t_steps} steps, {t_muts} mutations) isolated to {wt_data.get('ddmin_steps', 1)} step in {ms_display}")
         print(f"         {GREEN}✓{RESET} Minimal counterexample isolated: {culprit_tool}('{culprit_path}') (0 LLM calls)")
         print(f"         {GREEN}✓{RESET} Guarded Green vs Unguarded Red verified across all fault injection modes")
         print()

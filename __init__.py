@@ -1,11 +1,14 @@
-"""Phoenix — crash-proof, exactly-once execution journal for Hermes agents.
+"""Phoenix — crash-proof WAL execution journal and forward recovery for Hermes agents.
 
-Kill your agent mid-write. Phoenix shows you what was in flight, and resumes
-it exactly once. No LLM in the resume loop: the journal is the source of truth.
+Kill your agent mid-write. Phoenix shows you what was in flight, reconciles
+already-landed side effects via SHA-256 target fingerprinting, and resumes
+interrupted operations safely. No LLM in the recovery loop: the journal is the
+source of truth.
 
 Hermes surfaces used (public API only):
   * ``tool_execution`` middleware — journals intent before every tool call and
-    outcome after it (fail-open: a journaling error never breaks the agent).
+    outcome after it (fail-open: a journaling error never breaks the agent),
+    plus an opt-in same-session idempotency guard (OFF by default).
   * ``/phoenix`` and ``/recover`` slash commands (never /resume to avoid Hermes collision).
   * Native Hermes agent tools: ``phoenix_ledger``, ``phoenix_windtunnel``, and ``phoenix_stats``.
   * ``plugin_data_dir("phoenix")`` — durable SQLite (WAL) ledger.
@@ -13,13 +16,9 @@ Hermes surfaces used (public API only):
 
 from __future__ import annotations
 
-from pathlib import Path as _Path
-import shutil as _shutil
-
 
 def register(ctx):
     """Hermes entrypoint. Called once when the plugin is loaded."""
-    _shutil.rmtree(_Path(__file__).resolve().parent / "__pycache__", ignore_errors=True)
     from . import commands, middleware, tools
     from .core import get_app
 

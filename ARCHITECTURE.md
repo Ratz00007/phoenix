@@ -1,6 +1,6 @@
 # Phoenix v2.0.0 Architecture
 
-> **Core Invariant:** *At-most-once execution + at-least-once recording + zero duplicate writes.*
+> **Core Invariant:** *Durable WAL intent recording + SHA-256 disk reconciliation + opt-in same-session deduplication.*
 
 ---
 
@@ -21,10 +21,10 @@ phoenix/
 ├── chaos.py             # Deterministic seeded crash-boundary engine (4 crash boundaries)
 ├── selfcheck.py         # Hermes plugin doctor self-check script
 ├── demo.py              # 4-act end-to-end crash-and-recover + --chaos demonstration
-├── judge_eval.py        # Official judge scorecard (113 unit tests, doctor, windtunnel, chaos)
+├── judge_eval.py        # Single-command audit scorecard (124 unit tests, doctor, windtunnel, chaos)
 ├── dashboard/           # Hermes Web Dashboard extension (manifest.json, plugin_api.py, dist/index.js)
 ├── desktop/             # Hermes Desktop SDK surface (desktop/plugin.js)
-└── tests/               # 113 unit tests (unittest discover -s tests)
+└── tests/               # 124 unit tests (unittest discover -s tests)
 ```
 
 ---
@@ -54,4 +54,4 @@ If `SIGKILL`, OOM, or power loss kills the process between Step 1 and Step 3:
 ## 4. ReplayLab Wind Tunnel, Zeller `ddmin` & Chaos Engine (`windtunnel.py`, `chaos.py`)
 
 - `windtunnel.py` injects deterministic boundary faults (`timeout_after_commit`, `rate_limit_429`, `malformed_payload`) across `HERMES_DEV_TRACE` and applies Zeller's delta debugging (`ddmin_trace`) to isolate the minimal 1-step counterexample with 0 LLM calls.
-- `chaos.py` drives a deterministic seeded crash-boundary harness across all 4 crash windows (`before_intent`, `after_intent_before_write`, `after_write_before_outcome`, `after_outcome`) verifying 0 duplicate executions and exact disk byte integrity.
+- `chaos.py` drives a deterministic seeded crash-boundary harness across all 4 crash windows (`before_intent`, `between_intent_and_tool`, `after_tool_before_post_fp`, `before_commit`) verifying 0 duplicate executions and exact disk byte integrity.

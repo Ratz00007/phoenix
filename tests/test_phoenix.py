@@ -672,18 +672,23 @@ class TestToolsAndCLI(Base):
         self.assertEqual(res_capped_low["summary"]["runs"], 1)
 
     def test_cli_setup_and_handler(self):
+        import contextlib
+        import io
+
         parser = argparse.ArgumentParser()
         setup_cli(parser)
         args = parser.parse_args(["status"])
         self.assertEqual(args.action, "status")
 
-        # Test CLI handler returns code 0
-        code = cli_handler(args)
-        self.assertEqual(code, 0)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            # Test CLI handler returns code 0
+            code = cli_handler(args)
+            self.assertEqual(code, 0)
 
-        # Test CLI handler with dict
-        code_dict = cli_handler({"action": "guard", "params": ["on"]})
-        self.assertEqual(code_dict, 0)
+            # Test CLI handler with dict
+            code_dict = cli_handler({"action": "guard", "params": ["on"]})
+            self.assertEqual(code_dict, 0)
 
 
 # =============================================================================
@@ -1364,6 +1369,237 @@ class TestMaintainerReviewItems(Base):
         data = get_status()
         self.assertEqual(data["status"], "ok")
         self.assertEqual(data["windtunnel_verdict"], wt["verdict"])
+
+
+class TestProductionHardeningRegressions(Base):
+    def test_recover_fails_closed_when_ctx_missing(self):
+        app = get_app()
+        app.ctx = None
+        attempt = uuid.uuid4().hex
+        app.journal.record_intent(attempt, "op_no_ctx", "terminal", {"command": "echo hi"})
+
+        out = app.recover("")
+        self.assertIn("failed:", out)
+        self.assertIn("Hermes plugin context unavailable", out)
+        row = app.journal.get(attempt)
+        self.assertIsNotNone(row)
+        self.assertEqual(row[4], "error")
+        self.assertEqual(app.journal.stats()["in_flight"], 0)
+        self.assertEqual(app.journal.stats()["errors"], 1)
+
+    def test_scalar_secret_keys_and_recent_redaction_and_prune_orphans(self):
+        j = Journal(self.tmp, db_path=":memory:")
+        try:
+            j.record_intent(
+                "att_scalar",
+                "op_scalar",
+                "http.request",
+                {"secret": "plain_text_secret_99", "nested": {"authorization": "CustomAuth99"}},
+                pre_fp={"exists": False},
+            )
+            j.record_outcome(
+                "att_scalar",
+                "op_scalar",
+                "ok",
+                result={"refresh_token": "plain_refresh_token_123"},
+                error="token=plain_err_tok",
+            )
+            recent = j.recent(limit=5)
+            self.assertEqual(len(recent), 1)
+            self.assertNotIn("plain_text_secret_99", json.dumps(recent[0]))
+            self.assertNotIn("CustomAuth99", json.dumps(recent[0]))
+            self.assertNotIn("plain_refresh_token_123", json.dumps(recent[0]))
+            self.assertNotIn("plain_err_tok", json.dumps(recent[0]))
+
+            j.record_intent(
+                "att_scalar_2",
+                "op_scalar_2",
+                "read_file",
+                {"path": "ok.txt"},
+                pre_fp={"exists": True},
+            )
+            j.record_outcome("att_scalar_2", "op_scalar_2", "ok", result={"ok": True})
+
+            deleted = j.prune(max_age_days=7, max_rows=1)
+            self.assertEqual(deleted, 1)
+            c = j._connect()
+            fp_count = c.execute("SELECT COUNT(*) FROM fingerprints").fetchone()[0]
+            self.assertEqual(fp_count, 1)
+        finally:
+            j.close()
+
+    def test_middleware_setup_error_fails_open_while_next_call_error_propagates(self):
+        def broken_app_getter():
+            raise RuntimeError("storage unavailable")
+
+        fail_open_mw = mw.make_middleware(app_getter=broken_app_getter)
+        res = fail_open_mw(tool_name="write_file", args={"path": "x"}, next_call=lambda a: {"ok": True})
+        self.assertEqual(res, {"ok": True})
+
+        def failing_tool(_a):
+            raise ValueError("tool crashed")
+
+        with self.assertRaises(ValueError):
+            fail_open_mw(tool_name="write_file", args={"path": "x"}, next_call=failing_tool)
+
+    def test_keys_redirection_ignore_fd_and_patch_sha_and_deletion_only(self):
+        paths = phx.keys._extract_target_paths("terminal", {"command": "pytest 2>&1 | tee -p out.log"})
+        self.assertNotIn("&1", paths)
+        self.assertNotIn("-p", paths)
+
+        f = Path(self.tmp) / "del_only.py"
+        f.write_text("keep = 1\nremove_me = 2\n", encoding="utf-8")
+        pre_fp = target_fingerprint("patch", {"path": str(f)})
+        add_diff = "--- a/del_only.py\n+++ b/del_only.py\n@@ -1,2 +1,2 @@\n+keep = 1\n"
+        # File already contains `keep = 1`, but SHA did not change since pre_fp -> False
+        self.assertFalse(is_target_fully_committed("patch", {"path": str(f), "patch": add_diff}, pre_fp))
+
+        del_diff = "--- a/del_only.py\n+++ b/del_only.py\n@@ -1,2 +1 @@\n keep = 1\n-remove_me = 2\n"
+        self.assertFalse(is_target_fully_committed("patch", {"path": str(f), "patch": del_diff}, pre_fp))
+        f.write_text("keep = 1\n", encoding="utf-8")
+        self.assertTrue(is_target_fully_committed("patch", {"path": str(f), "patch": del_diff}, pre_fp))
+
+    def test_tools_restricted_commands_and_windtunnel_timestamp(self):
+        res_clear = json.loads(phoenix_ledger(action="clear"))
+        self.assertIn("/phoenix clear", res_clear["error"])
+        res_guard_on = json.loads(phoenix_ledger(action="guard_on"))
+        self.assertIn("/phoenix guard on", res_guard_on["error"])
+
+        res_wt = json.loads(phoenix_windtunnel(runs=1))
+        self.assertTrue(res_wt["passed"])
+        self.assertTrue(bool(get_app()._journal().get_meta("last_windtunnel_at")))
+
+    def test_redaction_nested_structures_and_state_probe_args(self):
+        payload = {
+            "meta": {"user": "alice", "token": "super_secret_auth_tok"},
+            "auth": {"scheme": "basic", "secret": "nested_auth_sec"},
+            "token": ["list_tok_alpha", "list_tok_beta"],
+            "jwt": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.ab+cd/ef==.sig999",
+            "sq_dict": "{'api_key': 'sk-proj-secret123456'}",
+            "db_uri": "https://admin:hunter2pass@db.example.com/prod",
+        }
+        redacted = phx.journal.redact_secrets(payload)
+        parsed = json.loads(redacted)
+        self.assertEqual(parsed["meta"]["user"], "alice")
+        self.assertEqual(parsed["auth"]["scheme"], "[REDACTED]")
+        for leaked in (
+            "super_secret_auth_tok",
+            "nested_auth_sec",
+            "list_tok_alpha",
+            "list_tok_beta",
+            "eyJhbGciOi",
+            "sk-proj-secret123456",
+            "hunter2pass",
+        ):
+            self.assertNotIn(leaked, redacted)
+
+        # Safe source content field should not be mangled by KV redaction
+        code_payload = phx.journal.redact_secrets({"path": "cfg.py", "content": "secret = 1\n"})
+        self.assertIn("secret = 1", code_payload)
+
+        # state_probe args inside pre_fp / post_fp must also be redacted
+        j = Journal(Path(self.tmp) / "fp_redact_db")
+        try:
+            j.record_intent(
+                "att_fp_sec",
+                "op_fp_sec",
+                "custom_tool",
+                {"path": "x"},
+                pre_fp={"probe": {"args": {"token": "probe_secret_xyz"}}},
+            )
+            j.record_outcome(
+                "att_fp_sec",
+                "op_fp_sec",
+                "ok",
+                post_fp={"probe": {"args": {"password": "post_secret_xyz"}}},
+            )
+            c = j._connect()
+            row = c.execute(
+                "SELECT pre_fp_json, post_fp_json FROM fingerprints WHERE attempt_id='att_fp_sec'"
+            ).fetchone()
+            self.assertNotIn("probe_secret_xyz", row[0])
+            self.assertNotIn("post_secret_xyz", row[1])
+        finally:
+            j.close()
+
+    def test_third_call_patch_dedup_not_poisoned_by_deduped_row(self):
+        f = Path(self.tmp) / "patch3.py"
+        f.write_text("line1 = 1\nline2 = 2\n", encoding="utf-8")
+        diff_txt = "--- a/patch3.py\n+++ b/patch3.py\n@@ -1,2 +1,2 @@\n line1 = 1\n-line2 = 2\n+line2 = 3\n"
+        args = {"path": str(f), "patch": diff_txt}
+
+        app = get_app()
+        app.set_guard(True)
+        calls = 0
+
+        def apply_patch_fn(a):
+            nonlocal calls
+            calls += 1
+            f.write_text("line1 = 1\nline2 = 3\n", encoding="utf-8")
+            return {"patched": True, "calls": calls}
+
+        guarded = mw.make_middleware(app_getter=get_app)
+        r1 = guarded(tool_name="patch", args=args, next_call=apply_patch_fn, session_id="s_dedup3")
+        r2 = guarded(tool_name="patch", args=args, next_call=apply_patch_fn, session_id="s_dedup3")
+        r3 = guarded(tool_name="patch", args=args, next_call=apply_patch_fn, session_id="s_dedup3")
+        self.assertEqual(calls, 1)
+        self.assertEqual(r1["calls"], 1)
+        self.assertEqual(r2["calls"], 1)
+        self.assertEqual(r3["calls"], 1)
+
+    def test_shell_redirect_guard_and_pure_deletion_edit_file(self):
+        self.assertFalse(mw._is_read_only("terminal", {"command": "echo hi > out.txt"}))
+        self.assertFalse(mw._is_read_only("terminal", {"command": "ls && rm -rf /tmp/x"}))
+        self.assertFalse(mw._is_read_only("terminal", {"command": "cat file.txt | grep foo"}))
+        self.assertTrue(mw._is_read_only("terminal", {"command": "ls -la"}))
+
+        f = Path(self.tmp) / "edit_del.txt"
+        f.write_text("keep_line\ndelete_this_line\n", encoding="utf-8")
+        pre_fp = target_fingerprint("edit_file", {"path": str(f)})
+        edit_args = {"path": str(f), "OldString": "delete_this_line\n", "Replacement": ""}
+        self.assertFalse(is_target_fully_committed("edit_file", edit_args, pre_fp))
+        f.write_text("keep_line\n", encoding="utf-8")
+        self.assertTrue(is_target_fully_committed("edit_file", edit_args, pre_fp))
+
+    def test_phoenix_ledger_redacts_and_double_crash_recov_no_duplicate(self):
+        app = get_app()
+        j = app._journal()
+        j.record_intent("att_sec_1", "op_sec_1", "api_call", {"api_key": "sk-proj-leak999", "q": "ok"})
+        j.record_outcome(
+            "att_sec_1",
+            "op_sec_1",
+            "error",
+            result={"token": "tok_leak_999"},
+            error="Authorization: Bearer err_leak_999",
+        )
+        explained_cli = app.explain("att_sec_1")
+        for leaked in ("sk-proj-leak999", "err_leak_999"):
+            self.assertNotIn(leaked, explained_cli)
+
+        explained_tool = phoenix_ledger(action="explain", target="att_sec_1")
+        status_tool = phoenix_ledger(action="status")
+        for leaked in ("sk-proj-leak999", "tok_leak_999", "err_leak_999"):
+            self.assertNotIn(leaked, explained_tool)
+            self.assertNotIn(leaked, status_tool)
+
+        # Simulate crash mid-recovery: both parent and parent_recov are in-flight
+        j.clear_in_flight("prep")
+        replays = 0
+
+        def dispatch_once(tool_name, tool_args):
+            nonlocal replays
+            replays += 1
+            return {"ok": True}
+
+        app.bind(type("Ctx", (), {"dispatch_tool": staticmethod(dispatch_once)})())
+        j.record_intent("att_dbl", "op_dbl", "custom_tool", {"k": "v"})
+        j.record_intent("att_dbl_recov", "op_dbl", "custom_tool", {"k": "v"})
+        alert = app.system_prompt_alert()
+        self.assertIn("1 interrupted tool operation", alert)
+        out = app.recover("")
+        self.assertEqual(replays, 1)
+        self.assertEqual(len(j.in_flight()), 0)
+        self.assertIn("resumed 1 operation", out)
 
 
 if __name__ == "__main__":

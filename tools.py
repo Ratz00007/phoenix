@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any
 
 from .core import get_app
@@ -67,7 +68,9 @@ def _extract_args(args: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
         try:
             parsed = json.loads(args)
             if isinstance(parsed, dict):
-                return parsed
+                merged = dict(parsed)
+                merged.update(kwargs)
+                return merged
         except Exception:
             return {"action": args}
     if isinstance(args, dict):
@@ -81,14 +84,26 @@ def _extract_args(args: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
 
 def phoenix_ledger(args: Any = None, **kwargs: Any) -> str:
     """Tool handler for phoenix_ledger."""
+    from .journal import redact_secrets
+
     params = _extract_args(args, kwargs)
-    action = (params.get("action") or "status").strip().lower()
+    action = str(params.get("action") or "status").strip().lower()
     target = params.get("target") or params.get("op_id") or params.get("attempt_id") or ""
 
     if action in ("recover", "clear", "guard_on", "guard_off"):
+        owner_cmds = {
+            "recover": "/recover",
+            "clear": "/phoenix clear",
+            "guard_on": "/phoenix guard on",
+            "guard_off": "/phoenix guard off",
+        }
+        owner_cmd = owner_cmds[action]
         return json.dumps({
             "status": "error",
-            "error": f"Action '{action}' is restricted to human owner commands (/recover or /phoenix {action}). Please advise the human user to run /{action} in chat.",
+            "error": (
+                f"Action '{action}' is restricted to human owner commands "
+                f"(/recover or /phoenix <action>). Please advise the human user to run {owner_cmd} in chat."
+            ),
         })
 
     app = get_app()
@@ -102,7 +117,7 @@ def phoenix_ledger(args: Any = None, **kwargs: Any) -> str:
                 "attempt_id": row[0],
                 "op_id": row[1],
                 "tool": row[2],
-                "args_json": row[3],
+                "args_json": redact_secrets(row[3]) or "{}",
                 "session_id": row[4],
                 "turn_id": row[5],
                 "ts_intent": row[6],
@@ -135,10 +150,10 @@ def phoenix_ledger(args: Any = None, **kwargs: Any) -> str:
             "attempt_id": row[0],
             "op_id": row[1],
             "tool": row[2],
-            "args_json": row[3],
+            "args_json": redact_secrets(row[3]) or "{}",
             "op_status": row[4],
-            "result_json": row[5],
-            "error": row[6],
+            "result_json": redact_secrets(row[5]) if row[5] is not None else None,
+            "error": redact_secrets(row[6]) if row[6] is not None else None,
             "session_id": row[7],
             "turn_id": row[8],
             "tool_call_id": row[9],
@@ -172,7 +187,13 @@ def phoenix_ledger(args: Any = None, **kwargs: Any) -> str:
         except Exception:
             out_file = reports_dir / "phoenix-report.html"
 
-        path = generate_html_report(app, str(out_file))
+        try:
+            path = generate_html_report(app, str(out_file))
+        except Exception as exc:
+            return json.dumps({
+                "status": "error",
+                "error": str(exc),
+            })
         return json.dumps({
             "status": "ok",
             "report_path": path,
@@ -198,11 +219,13 @@ def phoenix_windtunnel(args: Any = None, **kwargs: Any) -> str:
     app = get_app()
     try:
         from .windtunnel import run_windtunnel_suite
-        report = run_windtunnel_suite(runs=runs, journal=app._journal())
+        j = app._journal()
+        report = run_windtunnel_suite(runs=runs, journal=j)
         passed_count = sum(1 for c in report.get("checks", []) if c.get("passed"))
         total_checks = len(report.get("checks", [])) or 6
         verdict = f"{passed_count}/{total_checks} {'PASS' if report.get('passed') else 'FAIL'}"
-        app._journal().set_meta("windtunnel_verdict", verdict)
+        j.set_meta("windtunnel_verdict", verdict)
+        j.set_meta("last_windtunnel_at", datetime.now(timezone.utc).isoformat())
         return json.dumps(report, default=str)
     except Exception as exc:
         return json.dumps({
@@ -242,7 +265,7 @@ def register_tools(ctx: Any) -> None:
             "phoenix_ledger",
             phoenix_ledger,
             PHOENIX_LEDGER_SCHEMA,
-            "Inspect and manage the Phoenix crash-proof execution journal and idempotency guard.",
+            "Inspect the Phoenix crash-proof execution journal and flight recorder (status, explain, report).",
         ),
         (
             "phoenix_windtunnel",

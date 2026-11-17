@@ -1,6 +1,6 @@
 # Phoenix vs Alternatives
 
-Why **Phoenix v2.0.0** provides the missing exactly-once execution layer for autonomous Hermes agents.
+Why **Phoenix v2.0.0** provides a crash-safe SQLite WAL execution journal and forward recovery layer for autonomous Hermes agents.
 
 | Capability | Blind Retry | Hermes Built-in `/rollback` | Temporal / External Orchestrator | **Phoenix v2.0.0** |
 | :--- | :--- | :--- | :--- | :--- |

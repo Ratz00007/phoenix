@@ -4,12 +4,12 @@ Get up and running in 60 seconds with **0 external dependencies** and **0 API ke
 
 ---
 
-## 1. Run the Complete Evaluation Scorecard
+## 1. Run the Complete Audit Scorecard
 ```bash
 python judge_eval.py
 ```
 Executes:
-- **113/113 Unit Tests** (`python -m unittest discover -s tests`)
+- **124/124 Unit Tests** (`python -m unittest discover -s tests`)
 - **5 Hermes Official Doctor Checks** (manifest, dashboard, registration, public imports, clean build)
 - **Developer Wind Tunnel & Zeller `ddmin`** (8-step trace minimized to 1 step)
 - **Deterministic Chaos Crash-Boundary Engine** (`12/12` trials across 4 crash boundaries, 0 duplicate executions)

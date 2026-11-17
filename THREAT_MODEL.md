@@ -20,10 +20,10 @@ Phoenix is engineered under strict least-privilege assumptions for autonomous ag
    - Read-only tools are never cached across sessions.
 
 4. **Hardened Storage at Rest (`0600`, `O_EXCL`, Retention)**
-   - `phoenix.db` is created atomically with `O_EXCL` and `0600` permissions; `-wal` and `-shm` sidecars are hardened to `0600` on every open and checkpoint.
-   - Automatic retention pruning limits stored rows to **7 days / 10,000 rows** (preserving in-flight rows).
+   - `phoenix.db` is created atomically with `O_EXCL` and `0600` permissions; `-wal` and `-shm` sidecars are hardened to `0600` on every open, commit, and checkpoint.
+   - Automatic retention pruning limits stored rows to **7 days / 10,000 rows** (preserving in-flight rows and cleaning orphaned `fingerprints` entries).
 
 5. **Secret Redaction & Zero Network Calls**
-   - Regex sanitization scrubs API keys (`sk-...`, `ghp_...`, Bearer tokens, auth secrets) from arguments and results before persistence or HTML report rendering.
+   - Sensitive dictionary keys (`api_key`, `token`, `secret`, `password`, `authorization`, etc.) plus `sk-...`, `ghp_...`, `Bearer`, and `key=value` token patterns are scrubbed before persistence and readback.
    - Generated HTML reports contain zero `<script>` tags.
    - Zero external runtime dependencies (Python 3.11+ stdlib only) and zero network calls.

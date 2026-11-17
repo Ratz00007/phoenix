@@ -7,9 +7,10 @@ import json
 import os
 import re
 import tempfile
+import threading
 from typing import Any
 
-from .journal import Journal
+from .journal import Journal, redact_secrets
 
 try:
     from .keys import has_target_changed, is_hermes_error_result, is_target_fully_committed, target_fingerprint
@@ -54,31 +55,35 @@ class App:
     """Holds the plugin ctx and journal, and implements /phoenix + /recover."""
 
     def __init__(self) -> None:
+        self._lock = threading.RLock()
         self.ctx = None
         self.journal: Journal | None = None
         self._guard_enabled: bool = False
 
     def bind(self, ctx) -> None:
-        self.ctx = ctx
-        if self.journal is None:
-            self.journal = Journal(self._data_dir(), db_path=self._db_path())
+        with self._lock:
+            self.ctx = ctx
+            if self.journal is None:
+                self.journal = Journal(self._data_dir(), db_path=self._db_path())
 
     def reset(self) -> None:
         """Re-open the journal (used by tests and re-binds)."""
-        if self.journal is not None:
-            self.journal.close()
-        self.journal = Journal(self._data_dir(), db_path=self._db_path())
-        self._guard_enabled = False
+        with self._lock:
+            if self.journal is not None:
+                self.journal.close()
+            self.journal = Journal(self._data_dir(), db_path=self._db_path())
+            self._guard_enabled = False
 
     def close(self) -> None:
         """Close the journal if open and set self.journal = None."""
-        if self.journal is not None:
-            try:
-                self.journal.close()
-            except Exception:
-                pass
-            self.journal = None
-        self._guard_enabled = False
+        with self._lock:
+            if self.journal is not None:
+                try:
+                    self.journal.close()
+                except Exception:
+                    pass
+                self.journal = None
+            self._guard_enabled = False
 
     @property
     def guard_enabled(self) -> bool:
@@ -108,6 +113,10 @@ class App:
         return os.environ.get("PHOENIX_DB_PATH")
 
     def _data_dir(self) -> str:
+        env_dir = os.environ.get("PHOENIX_DATA_DIR")
+        if env_dir:
+            os.makedirs(env_dir, exist_ok=True)
+            return env_dir
         # Hermes: durable, profile-scoped storage that survives update/remove.
         try:
             from plugins.plugin_storage import plugin_data_dir
@@ -115,7 +124,7 @@ class App:
         except Exception:
             pass
         # Fallback (unit tests, no Hermes installed).
-        d = os.environ.get("PHOENIX_DATA_DIR") or os.path.join(tempfile.gettempdir(), "phoenix")
+        d = os.path.join(tempfile.gettempdir(), "phoenix")
         os.makedirs(d, exist_ok=True)
         return d
 
@@ -139,8 +148,19 @@ class App:
         if subcmd in ("recover", "resume"):
             return self.recover(rest)
         if subcmd in ("windtunnel", "test"):
+            from datetime import datetime, timezone
             from .windtunnel import format_windtunnel_report, run_windtunnel_suite
-            return format_windtunnel_report(run_windtunnel_suite(journal=self._journal()))
+
+            j = self._journal()
+            report = run_windtunnel_suite(journal=j)
+            checks = report.get("checks", [])
+            passed_count = sum(1 for c in checks if c.get("passed"))
+            total_checks = len(checks) or 6
+            verdict = f"{passed_count}/{total_checks} {'PASS' if report.get('passed') else 'FAIL'}"
+            if hasattr(j, "set_meta"):
+                j.set_meta("windtunnel_verdict", verdict)
+                j.set_meta("last_windtunnel_at", datetime.now(timezone.utc).isoformat())
+            return format_windtunnel_report(report)
         if subcmd == "report":
             return self.report(rest)
         if subcmd == "guard":
@@ -171,7 +191,7 @@ class App:
             lines.append("run /recover (or /phoenix recover) to finish them exactly once.")
         else:
             lines.append("nothing in flight — every recorded operation has a known outcome.")
-            lines.append("Run '/phoenix windtunnel' to launch the 5-fault stress test.")
+            lines.append("Run '/phoenix windtunnel' to launch the 6-check fault-injection suite.")
 
         # Flight Recorder Timeline
         recent_ops = j.recent(limit=25 if verbose else 10)
@@ -267,12 +287,14 @@ class App:
         if row is None:
             return f"phoenix: no operation matches {target!r}."
         attempt_id, op_id, tool, args_json, status, result_json, error, sid, tid, tcid, ts_i, ts_d = row
+        clean_args = redact_secrets(args_json) or "{}"
+        clean_err = redact_secrets(error) if error else ""
         return (
             f"op   {op_id}\n"
             f"tool {tool}\n"
-            f"args {args_json}\n"
+            f"args {clean_args}\n"
             f"status {status}"
-            + (f"\nerror {error}" if error else "")
+            + (f"\nerror {clean_err}" if clean_err else "")
         )
 
     def recover(self, raw_args: str = "") -> str:
@@ -281,7 +303,9 @@ class App:
         if not inflight:
             return "Phoenix: nothing in flight to recover."
 
-        wanted = set(raw_args.split()) if raw_args.strip() else None
+        raw_clean = (raw_args or "").strip()
+        wanted = set(raw_clean.split()) if raw_clean else None
+        inflight_ids = {str(r[0]) for r in inflight}
         resumed = 0
         lines = []
 
@@ -305,11 +329,16 @@ class App:
             _tfp = target_fingerprint
 
         for attempt_id, op_id, tool, args_json, session_id, turn_id, ts in inflight:
+            aid_str = str(attempt_id)
+            if aid_str.endswith("_recov") and aid_str[:-6] in inflight_ids:
+                continue
             if wanted and not (attempt_id in wanted or op_id in wanted):
                 continue
             try:
-                args = json.loads(args_json)
+                args = json.loads(args_json) if args_json else {}
             except Exception:
+                args = {}
+            if not isinstance(args, dict):
                 args = {}
 
             pre_fp = None
@@ -324,6 +353,24 @@ class App:
                     pre_fp = json.loads(pre_fp)
                 except Exception:
                     pass
+
+            recov_attempt_id = f"{attempt_id}_recov"
+            recov_row = j.find(recov_attempt_id) if hasattr(j, "find") else None
+            if recov_row is not None and recov_row[4] in ("ok", "resumed", "recovered_landed"):
+                prior_res = recov_row[5]
+                if isinstance(prior_res, str):
+                    try:
+                        prior_res = json.loads(prior_res)
+                    except Exception:
+                        pass
+                try:
+                    j.mark_resumed(attempt_id, result=prior_res)
+                except TypeError:
+                    j.mark_resumed(attempt_id, result=prior_res)
+                resumed += 1
+                lines.append(f"recover {tool} {op_id}")
+                lines.append("  -> prior recovery attempt already succeeded; marked resumed without re-executing")
+                continue
 
             target_committed = False
             try:
@@ -353,13 +400,17 @@ class App:
                         j.mark_resumed(attempt_id, result=landed_result, status="recovered_landed")
                     except TypeError:
                         j.mark_resumed(attempt_id, result=landed_result)
+                if recov_attempt_id in inflight_ids:
+                    try:
+                        j.mark_resumed(recov_attempt_id, result=landed_result, status="recovered_landed", post_fp=post_fp)
+                    except TypeError:
+                        j.mark_resumed(recov_attempt_id, result=landed_result)
                 resumed += 1
                 lines.append(f"recover {tool} {op_id}")
                 lines.append("  -> already landed on disk (fingerprint changed); marked recovered without re-executing")
                 continue
 
             lines.append(f"recover {tool} {op_id}")
-            recov_attempt_id = f"{attempt_id}_recov"
             try:
                 j.record_intent(
                     recov_attempt_id,
@@ -370,7 +421,13 @@ class App:
                     turn_id=turn_id,
                     pre_fp=pre_fp,
                 )
-                result = self.ctx.dispatch_tool(tool, args) if self.ctx is not None else None
+                if self.ctx is None or not hasattr(self.ctx, "dispatch_tool"):
+                    err_msg = "Hermes plugin context unavailable; cannot dispatch tool"
+                    j.record_outcome(recov_attempt_id, op_id, "error", error=err_msg)
+                    j.record_outcome(attempt_id, op_id, "error", error=err_msg)
+                    lines.append(f"  -> failed: {err_msg}")
+                    continue
+                result = self.ctx.dispatch_tool(tool, args)
                 post_fp = None
                 try:
                     post_fp = _tfp(tool, args)
@@ -415,20 +472,21 @@ class App:
         reports_dir = Path(self._data_dir()) / "reports"
         reports_dir.mkdir(parents=True, exist_ok=True)
 
-        target = raw_args.strip()
+        target = (raw_args or "").strip()
         out_path = target if target else str(reports_dir / "phoenix-report.html")
         path = generate_html_report(self, out_path)
         return f"Phoenix HTML forensic report written to: {path}"
 
     def prune(self, raw_args: str = "") -> str:
-        parts = raw_args.strip().split() if raw_args.strip() else []
+        raw_clean = (raw_args or "").strip()
+        parts = raw_clean.split() if raw_clean else []
         days = 7
         rows = 10000
         try:
             if len(parts) >= 1:
-                days = int(parts[0])
+                days = max(0, int(parts[0]))
             if len(parts) >= 2:
-                rows = int(parts[1])
+                rows = max(1, int(parts[1]))
         except ValueError:
             pass
         deleted = self._journal().prune(max_age_days=days, max_rows=rows)
@@ -437,6 +495,13 @@ class App:
     def system_prompt_alert(self, session_info: Any = None, *args: Any, **kwargs: Any) -> str:
         inflight = self._journal().in_flight()
         if not inflight:
+            return ""
+
+        inflight_ids = {str(r[0]) for r in inflight}
+        visible_inflight = [
+            r for r in inflight if not (str(r[0]).endswith("_recov") and str(r[0])[:-6] in inflight_ids)
+        ]
+        if not visible_inflight:
             return ""
 
         try:
@@ -453,10 +518,10 @@ class App:
             _tfp = target_fingerprint
 
         lines = [
-            f"[PHOENIX WAL CRASH ALERT] {len(inflight)} interrupted tool operation(s) detected from a prior crash/timeout:"
+            f"[PHOENIX WAL CRASH ALERT] {len(visible_inflight)} interrupted tool operation(s) detected from a prior crash/timeout:"
         ]
         j = self._journal()
-        for row in inflight:
+        for row in visible_inflight:
             attempt_id, op_id, tool, args_json, session_id, turn_id, ts = row
             clean_tool = _sanitize_tool(tool)
             clean_op = _sanitize_op_id(op_id)
@@ -464,6 +529,8 @@ class App:
             try:
                 args_dict = json.loads(args_json) if args_json else {}
             except Exception:
+                args_dict = {}
+            if not isinstance(args_dict, dict):
                 args_dict = {}
 
             pre_fp = None
@@ -491,7 +558,7 @@ class App:
                 except Exception:
                     target_changed = False
 
-            if target_committed:
+            if target_committed or target_changed:
                 landed_path = (pre_fp.get("path") if isinstance(pre_fp, dict) else None) or (args_dict.get("path") or args_dict.get("file_path"))
                 landed_result = {"recovered": "already_landed", "path": str(landed_path) if landed_path else None}
                 post_fp = None
@@ -506,23 +573,13 @@ class App:
                         j.mark_resumed(attempt_id, result=landed_result, status="recovered_landed")
                     except TypeError:
                         j.mark_resumed(attempt_id, result=landed_result)
-                lines.append(f"  - [{clean_tool}] {clean_op}: target ALREADY mutated on disk -> marked recovered_landed")
-            elif target_changed:
-                landed_path = pre_fp.get("path") if isinstance(pre_fp, dict) else None
-                landed_result = {"recovered": "already_landed", "path": landed_path}
-                post_fp = None
-                try:
-                    post_fp = _tfp(tool, args_dict)
-                except Exception:
-                    post_fp = None
-                try:
-                    j.mark_resumed(attempt_id, result=landed_result, status="recovered_landed", post_fp=post_fp)
-                except TypeError:
+                recov_id = f"{attempt_id}_recov"
+                if recov_id in inflight_ids:
                     try:
-                        j.mark_resumed(attempt_id, result=landed_result, status="recovered_landed")
+                        j.mark_resumed(recov_id, result=landed_result, status="recovered_landed", post_fp=post_fp)
                     except TypeError:
-                        j.mark_resumed(attempt_id, result=landed_result)
-                lines.append(f"  - [{clean_tool}] {clean_op}: target ALREADY mutated on disk -> safe to mark recovered_landed")
+                        j.mark_resumed(recov_id, result=landed_result)
+                lines.append(f"  - [{clean_tool}] {clean_op}: target ALREADY mutated on disk -> marked recovered_landed")
             else:
                 lines.append(f"  - [{clean_tool}] {clean_op}: target unchanged -> needs replay (run /recover)")
 
@@ -532,9 +589,10 @@ class App:
         return "\n".join(lines)
 
     def _journal(self) -> Journal:
-        if self.journal is None:
-            self.journal = Journal(self._data_dir(), db_path=self._db_path())
-        return self.journal
+        with self._lock:
+            if self.journal is None:
+                self.journal = Journal(self._data_dir(), db_path=self._db_path())
+            return self.journal
 
 
 _APP = App()

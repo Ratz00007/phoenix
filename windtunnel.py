@@ -4,7 +4,7 @@ ReplayLab engine for Phoenix:
 - Deterministic trace replay and sandboxed system-state execution
 - Production-shaped fault injection at the tool boundary (fuzzy timeout-after-commit)
 - System-state oracle (evaluates true system state, never the agent's claims)
-- Zeller's ddmin delta-debugging to 1 minimal counterexample (<2ms, 0 LLM calls)
+- Zeller's ddmin delta-debugging to 1 minimal counterexample (milliseconds, 0 LLM calls)
 - Phoenix Guard deduplication verification (5/5 RED -> 0/5 RED)
 - Live SQLite journal replay and VCR cassette trace extraction
 """
@@ -17,12 +17,12 @@ import json
 import tempfile
 import time
 import uuid
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 try:
-    from .keys import canonical_json, op_id
+    from .keys import op_id
 except ImportError:
-    from keys import canonical_json, op_id
+    from keys import op_id
 
 try:
     from .journal import Journal
@@ -787,6 +787,7 @@ def run_windtunnel_suite(
     trace: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Execute all 6 G2 kill-gate checks + ddmin minimizer + Phoenix Guard verification."""
+    runs = max(1, int(runs))
     if trace is None:
         trace = HERMES_DEV_TRACE
     checks: list[dict[str, Any]] = []

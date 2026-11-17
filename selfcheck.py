@@ -178,7 +178,11 @@ def check_developer_windtunnel() -> tuple[bool, str]:
         report = wt.run_windtunnel_suite(runs=2, trace=trace)
         if not report.get("passed"):
             return False, "run_windtunnel_suite(runs=2) failed"
-        return True, "HERMES_DEV_TRACE multi-mutation trace verified (8 steps -> 1 step isolated in <10ms, 0 LLM calls)"
+        elapsed_ms = ddmin_res.get("elapsed_ms", 0)
+        return True, (
+            f"HERMES_DEV_TRACE multi-mutation trace verified ({len(trace)} steps, "
+            f"{len(mutating)} mutations -> 1 step isolated in {elapsed_ms}ms, 0 LLM calls)"
+        )
     except Exception as exc:
         return False, f"windtunnel check raised: {exc!r}"
 
@@ -190,10 +194,14 @@ def check_tests() -> tuple[bool, str]:
         [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-q"],
         cwd=str(ROOT), env=env, capture_output=True, text=True,
     )
+    combined = (proc.stdout or "") + "\n" + (proc.stderr or "")
     if proc.returncode != 0:
-        return False, "test suite failed:\n" + proc.stderr[-1500:]
-    tail = proc.stdout.strip().splitlines()
-    return True, "test suite green: " + (tail[-1].strip() if tail else "")
+        return False, "test suite failed:\n" + combined[-1500:]
+    lines = [line.strip() for line in combined.splitlines() if line.strip()]
+    ran_line = next((line for line in reversed(lines) if line.startswith("Ran ")), "")
+    status_line = lines[-1] if lines else "OK"
+    summary = f"{ran_line} ({status_line})" if ran_line else status_line
+    return True, "test suite green: " + summary
 
 
 def main() -> int:

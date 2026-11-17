@@ -2,17 +2,29 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import sys
+import types
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-# Ensure parent directory is on sys.path so 'phoenix' is importable
-_grandparent_dir = str(Path(__file__).resolve().parent.parent.parent)
-if _grandparent_dir not in sys.path:
-    sys.path.insert(0, _grandparent_dir)
+_DASHBOARD_DIR = Path(__file__).resolve().parent
+_PLUGIN_ROOT = _DASHBOARD_DIR.parent
+
+
+def _resolve_loaded_package_root() -> str | None:
+    """Return an already-loaded Phoenix package prefix (bare or profile-scoped)."""
+    if "hermes_plugins.phoenix.core" in sys.modules:
+        return "hermes_plugins.phoenix"
+    for name in list(sys.modules):
+        if name.startswith("hermes_plugins.phoenix__") and name.endswith(".core") and sys.modules[name] is not None:
+            return name.rsplit(".", 1)[0]
+    if "phoenix.core" in sys.modules:
+        return "phoenix"
+    return None
 
 
 def _resolve_loaded_submodule(submodule: str) -> Any | None:
@@ -21,29 +33,62 @@ def _resolve_loaded_submodule(submodule: str) -> Any | None:
     if exact is not None:
         return exact
     for name, mod in list(sys.modules.items()):
-        if mod is not None and name.startswith("hermes_plugins.phoenix") and name.endswith(f".{submodule}"):
+        if (
+            mod is not None
+            and name.startswith("hermes_plugins.phoenix__")
+            and name.endswith(f".{submodule}")
+        ):
             return mod
     return sys.modules.get(f"phoenix.{submodule}")
 
 
+def _import_relative_submodule(submodule: str) -> Any:
+    """Resolve an already-loaded submodule or import it via package-relative imports."""
+    loaded = _resolve_loaded_submodule(submodule)
+    if loaded is not None:
+        return loaded
+
+    if __package__:
+        return importlib.import_module(f"..{submodule}", __package__)
+
+    # If core was already loaded under a hermes_plugins package namespace, import
+    # sibling submodules from that same package to avoid splitting _APP.
+    loaded_root = _resolve_loaded_package_root()
+    if loaded_root and loaded_root != "phoenix":
+        try:
+            return importlib.import_module(f".{submodule}", loaded_root)
+        except Exception:
+            pass
+
+    # Standalone single-file load (e.g. import_user_code without parent package):
+    # register local package shells in sys.modules instead of mutating sys.path.
+    pkg = sys.modules.get("phoenix")
+    if pkg is None or not hasattr(pkg, "__path__"):
+        pkg = types.ModuleType("phoenix")
+        pkg.__path__ = [str(_PLUGIN_ROOT)]
+        pkg.__package__ = "phoenix"
+        sys.modules["phoenix"] = pkg
+
+    subpkg = sys.modules.get("phoenix.dashboard")
+    if subpkg is None or not hasattr(subpkg, "__path__"):
+        subpkg = types.ModuleType("phoenix.dashboard")
+        subpkg.__path__ = [str(_DASHBOARD_DIR)]
+        subpkg.__package__ = "phoenix.dashboard"
+        sys.modules["phoenix.dashboard"] = subpkg
+
+    return importlib.import_module(f"..{submodule}", "phoenix.dashboard")
+
+
 def _get_app() -> Any:
     """Resolve the active Phoenix App singleton without module-split duplication."""
-    core_mod = _resolve_loaded_submodule("core")
-    if core_mod is not None and hasattr(core_mod, "get_app"):
-        return core_mod.get_app()
-    from phoenix.core import get_app
-
-    return get_app()
+    core_mod = _import_relative_submodule("core")
+    return core_mod.get_app()
 
 
 def _get_windtunnel_runner():
     """Resolve run_windtunnel_suite from the loaded plugin namespace if present."""
-    wt_mod = _resolve_loaded_submodule("windtunnel")
-    if wt_mod is not None and hasattr(wt_mod, "run_windtunnel_suite"):
-        return wt_mod.run_windtunnel_suite
-    from phoenix.windtunnel import run_windtunnel_suite
-
-    return run_windtunnel_suite
+    wt_mod = _import_relative_submodule("windtunnel")
+    return wt_mod.run_windtunnel_suite
 
 
 def _compute_db_bytes(journal: Any) -> int:
@@ -89,6 +134,15 @@ def get_status() -> dict[str, Any]:
 
     verdict = (j.get_meta("windtunnel_verdict", "UNKNOWN") if hasattr(j, "get_meta") else "UNKNOWN") or "UNKNOWN"
     last_wt_at = (j.get_meta("last_windtunnel_at", "") if hasattr(j, "get_meta") else "") or None
+    wt_report_raw = j.get_meta("windtunnel_report", "") if hasattr(j, "get_meta") else ""
+    wt_report = None
+    if wt_report_raw:
+        try:
+            parsed = json.loads(wt_report_raw)
+            if isinstance(parsed, dict):
+                wt_report = parsed
+        except Exception:
+            wt_report = None
 
     return {
         "status": "ok",
@@ -103,6 +157,7 @@ def get_status() -> dict[str, Any]:
         "db_bytes": _compute_db_bytes(j),
         "windtunnel_verdict": verdict,
         "last_windtunnel_at": last_wt_at,
+        "windtunnel_report": wt_report,
     }
 
 
@@ -151,6 +206,10 @@ def post_windtunnel() -> dict[str, Any]:
     if hasattr(j, "set_meta"):
         j.set_meta("windtunnel_verdict", verdict)
         j.set_meta("last_windtunnel_at", last_wt_at)
+        try:
+            j.set_meta("windtunnel_report", json.dumps(report, default=str))
+        except Exception:
+            pass
 
     return {
         "status": "ok",

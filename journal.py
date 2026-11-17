@@ -6,7 +6,7 @@ One row per tool *attempt*. An operation is identified by its idempotency key
 Lifecycle of a row:
     intent  ->  ok | error          (normal completion)
     intent  ->  (process dies)      (crash: row stays "intent" = in-flight)
-    intent  ->  resumed             (a later /resume replayed it exactly once)
+    intent  ->  resumed             (a later /recover replayed it once)
     intent  ->  recovered_landed    (target was already modified before crash)
     intent  ->  deduped             (skipped execution due to idempotency guard)
 """
@@ -22,17 +22,65 @@ import time
 from pathlib import Path
 from typing import Any
 
+_SENSITIVE_KEY_RE = re.compile(
+    r"^(?:api[_-]?key|token|secret|password|passwd|auth|authorization|access[_-]?token|refresh[_-]?token|bearer)$",
+    re.IGNORECASE,
+)
+
 _REDACT_KV_RE = re.compile(
     r'("(?:api[_-]?key|token|secret|password|passwd|auth|authorization|access[_-]?token|refresh[_-]?token|bearer)"\s*:\s*)"(?:[^"\\]|\\.)*"',
     re.IGNORECASE,
 )
-_REDACT_KV_NONSTR_RE = re.compile(
-    r'("(?:api[_-]?key|token|secret|password|passwd|auth|authorization|access[_-]?token|refresh[_-]?token|bearer)"\s*:\s*)(?!")[^\s,}\]]+',
+_REDACT_KV_SQ_RE = re.compile(
+    r"('(?:api[_-]?key|token|secret|password|passwd|auth|authorization|access[_-]?token|refresh[_-]?token|bearer)'\s*:\s*)'(?:[^'\\]|\\.)*'",
     re.IGNORECASE,
 )
+_REDACT_KV_NONSTR_RE = re.compile(
+    r'("(?:api[_-]?key|token|secret|password|passwd|auth|authorization|access[_-]?token|refresh[_-]?token|bearer)"\s*:\s*)(?:true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)',
+    re.IGNORECASE,
+)
+_REDACT_ASSIGN_RE = re.compile(
+    r'\b((?:api[_-]?key|token|secret|password|passwd|auth|authorization|access[_-]?token|refresh[_-]?token)=)([^\s,;&"\'\}\]]+)',
+    re.IGNORECASE,
+)
+_REDACT_URL_USERINFO_RE = re.compile(r'(://[^/\s:@"\'?#]+:)[^/\s@"\'?#]+(@)')
 _REDACT_SK_RE = re.compile(r'\bsk-[a-zA-Z0-9_\-]{8,}\b')
 _REDACT_GHP_RE = re.compile(r'\bghp[_-][a-zA-Z0-9]{8,}\b')
-_REDACT_BEARER_RE = re.compile(r'\b(Bearer\s+)[a-zA-Z0-9_\-\.]{8,}\b', re.IGNORECASE)
+_REDACT_BEARER_RE = re.compile(r'\b(Bearer\s+)[^\s"\',\}\]]{8,}', re.IGNORECASE)
+
+
+def _redact_string(s: str) -> str:
+    s = _REDACT_KV_RE.sub(r'\1"[REDACTED]"', s)
+    s = _REDACT_KV_SQ_RE.sub(r"\1'[REDACTED]'", s)
+    s = _REDACT_KV_NONSTR_RE.sub(r'\1"[REDACTED]"', s)
+    s = _REDACT_ASSIGN_RE.sub(r'\1[REDACTED]', s)
+    s = _REDACT_URL_USERINFO_RE.sub(r'\1[REDACTED]\2', s)
+    s = _REDACT_SK_RE.sub('[REDACTED]', s)
+    s = _REDACT_GHP_RE.sub('[REDACTED]', s)
+    s = _REDACT_BEARER_RE.sub(r'\1[REDACTED]', s)
+    return s
+
+
+def _redact_structure(obj: Any, force_redact: bool = False) -> Any:
+    """Recursively redact sensitive keys and credential patterns without breaking JSON structure."""
+    if obj is None:
+        return None
+    if isinstance(obj, dict):
+        redacted: dict[Any, Any] = {}
+        for k, v in obj.items():
+            key_sensitive = force_redact or (isinstance(k, str) and bool(_SENSITIVE_KEY_RE.match(k)))
+            if key_sensitive and v is not None and not isinstance(v, (dict, list, tuple)):
+                redacted[k] = "[REDACTED]"
+            else:
+                redacted[k] = _redact_structure(v, force_redact=key_sensitive)
+        return redacted
+    if isinstance(obj, (list, tuple)):
+        return [_redact_structure(item, force_redact=force_redact) for item in obj]
+    if force_redact:
+        return "[REDACTED]"
+    if isinstance(obj, str):
+        return _redact_string(obj)
+    return obj
 
 
 def redact_secrets(val: Any) -> str | None:
@@ -40,18 +88,23 @@ def redact_secrets(val: Any) -> str | None:
     if val is None:
         return None
     if isinstance(val, str):
-        s = val
-    else:
         try:
-            s = json.dumps(val, default=str)
+            parsed = json.loads(val)
         except Exception:
-            s = str(val)
-    s = _REDACT_KV_RE.sub(r'\1"[REDACTED]"', s)
-    s = _REDACT_KV_NONSTR_RE.sub(r'\1"[REDACTED]"', s)
-    s = _REDACT_SK_RE.sub('[REDACTED]', s)
-    s = _REDACT_GHP_RE.sub('[REDACTED]', s)
-    s = _REDACT_BEARER_RE.sub(r'\1[REDACTED]', s)
-    return s
+            return _redact_string(val)
+        if isinstance(parsed, (dict, list)):
+            sanitized = _redact_structure(parsed)
+            try:
+                return _redact_string(json.dumps(sanitized, default=str))
+            except Exception:
+                return _redact_string(val)
+        return _redact_string(val)
+    sanitized = _redact_structure(val)
+    try:
+        s = json.dumps(sanitized, default=str)
+    except Exception:
+        s = str(sanitized)
+    return _redact_string(s)
 
 
 _SCHEMA = """
@@ -149,17 +202,26 @@ class Journal:
         if self._conn is None:
             if self.db_path != ":memory:":
                 self._prepare_database_file()
-            self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
-            if self.db_path != ":memory:":
-                self._conn.execute("PRAGMA journal_mode=WAL")
-                # SQLite may create the WAL/SHM files while enabling WAL mode.
-                self._harden_file_permissions()
-                self._conn.execute("PRAGMA synchronous=NORMAL")
-            self._conn.executescript(_SCHEMA)
+            conn = sqlite3.connect(self.db_path, timeout=30.0, check_same_thread=False)
             try:
-                self._conn.execute("ALTER TABLE ops ADD COLUMN pre_fp_json TEXT")
-            except sqlite3.OperationalError:
-                pass
+                conn.execute("PRAGMA busy_timeout=5000")
+                if self.db_path != ":memory:":
+                    conn.execute("PRAGMA journal_mode=WAL")
+                    # SQLite may create the WAL/SHM files while enabling WAL mode.
+                    self._harden_file_permissions()
+                    conn.execute("PRAGMA synchronous=NORMAL")
+                conn.executescript(_SCHEMA)
+                try:
+                    conn.execute("ALTER TABLE ops ADD COLUMN pre_fp_json TEXT")
+                except sqlite3.OperationalError:
+                    pass
+                self._conn = conn
+            except Exception:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                raise
             if self.db_path != ":memory:":
                 try:
                     self.prune(max_age_days=7, max_rows=10000)
@@ -180,6 +242,11 @@ class Journal:
                         self.prune(max_age_days=7, max_rows=10000)
                     except Exception:
                         pass
+                    try:
+                        self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                    except Exception:
+                        pass
+                    self._harden_file_permissions()
                 self._conn.close()
                 self._conn = None
 
@@ -199,7 +266,7 @@ class Journal:
     ) -> None:
         with self._lock:
             c = self._connect()
-            pre_fp_json = json.dumps(pre_fp, default=str) if pre_fp is not None else None
+            pre_fp_json = redact_secrets(pre_fp) if pre_fp is not None else None
             args_json = redact_secrets(args) or "{}"
             c.execute(
                 "INSERT OR IGNORE INTO ops (attempt_id, op_id, tool, args_json, status, "
@@ -227,7 +294,7 @@ class Journal:
         """Persist post-execution target fingerprint for an attempt."""
         with self._lock:
             c = self._connect()
-            post_fp_json = json.dumps(post_fp, default=str) if post_fp is not None else None
+            post_fp_json = redact_secrets(post_fp) if post_fp is not None else None
             cur = c.execute(
                 "UPDATE fingerprints SET post_fp_json=? WHERE attempt_id=?",
                 (post_fp_json, attempt_id),
@@ -259,7 +326,7 @@ class Journal:
                 ),
             )
             if post_fp is not None:
-                post_fp_json = json.dumps(post_fp, default=str)
+                post_fp_json = redact_secrets(post_fp)
                 cur = c.execute(
                     "UPDATE fingerprints SET post_fp_json=? WHERE attempt_id=?",
                     (post_fp_json, attempt_id),
@@ -288,7 +355,7 @@ class Journal:
                 ),
             )
             if post_fp is not None:
-                post_fp_json = json.dumps(post_fp, default=str)
+                post_fp_json = redact_secrets(post_fp)
                 cur = c.execute(
                     "UPDATE fingerprints SET post_fp_json=? WHERE attempt_id=?",
                     (post_fp_json, attempt_id),
@@ -309,9 +376,10 @@ class Journal:
         """Mark all intent rows as errors (a deliberate, recorded give-up)."""
         with self._lock:
             c = self._connect()
+            clean_reason = redact_secrets(reason) or "cleared"
             c.execute(
                 "UPDATE ops SET status='error', error=?, ts_done=? WHERE status='intent'",
-                (reason, time.time()),
+                (clean_reason, time.time()),
             )
             self._commit(c)
 
@@ -327,62 +395,69 @@ class Journal:
     # -- reads --------------------------------------------------------------
 
     def get_meta(self, key: str, default: str = "") -> str:
-        row = self._connect().execute(
-            "SELECT val FROM meta WHERE key=?",
-            (key,),
-        ).fetchone()
-        return row[0] if row else default
+        with self._lock:
+            row = self._connect().execute(
+                "SELECT val FROM meta WHERE key=?",
+                (key,),
+            ).fetchone()
+            return row[0] if row else default
 
     def latest_outcome(self, op_id):
-        return self._connect().execute(
-            "SELECT status, result_json, error FROM ops "
-            "WHERE op_id=? AND status IN ('ok','error','resumed','recovered_landed','deduped') "
-            "ORDER BY ts_done DESC LIMIT 1",
-            (op_id,),
-        ).fetchone()
+        with self._lock:
+            return self._connect().execute(
+                "SELECT status, result_json, error FROM ops "
+                "WHERE op_id=? AND status IN ('ok','error','resumed','recovered_landed','deduped') "
+                "ORDER BY ts_done DESC, rowid DESC LIMIT 1",
+                (op_id,),
+            ).fetchone()
 
     def latest_success(self, op_id: str, session_id: str | None = None) -> tuple[str, str | None] | None:
-        if session_id:
+        with self._lock:
+            if session_id:
+                return self._connect().execute(
+                    "SELECT status, result_json FROM ops "
+                    "WHERE op_id=? AND session_id=? AND status IN ('ok','resumed','recovered_landed') "
+                    "ORDER BY ts_done DESC, rowid DESC LIMIT 1",
+                    (op_id, session_id),
+                ).fetchone()
             return self._connect().execute(
                 "SELECT status, result_json FROM ops "
-                "WHERE op_id=? AND session_id=? AND status IN ('ok','resumed','recovered_landed') "
-                "ORDER BY ts_done DESC LIMIT 1",
-                (op_id, session_id),
+                "WHERE op_id=? AND (session_id IS NULL OR session_id='') AND status IN ('ok','resumed','recovered_landed') "
+                "ORDER BY ts_done DESC, rowid DESC LIMIT 1",
+                (op_id,),
             ).fetchone()
-        return self._connect().execute(
-            "SELECT status, result_json FROM ops "
-            "WHERE op_id=? AND (session_id IS NULL OR session_id='') AND status IN ('ok','resumed','recovered_landed') "
-            "ORDER BY ts_done DESC LIMIT 1",
-            (op_id,),
-        ).fetchone()
 
     def in_flight(self):
-        return self._connect().execute(
-            "SELECT attempt_id, op_id, tool, args_json, session_id, turn_id, ts_intent "
-            "FROM ops WHERE status='intent' ORDER BY ts_intent",
-        ).fetchall()
+        with self._lock:
+            return self._connect().execute(
+                "SELECT attempt_id, op_id, tool, args_json, session_id, turn_id, ts_intent "
+                "FROM ops WHERE status='intent' ORDER BY ts_intent, rowid",
+            ).fetchall()
 
     def get(self, attempt_id):
-        return self._connect().execute(
-            "SELECT attempt_id, op_id, tool, args_json, status, result_json, error, "
-            "session_id, turn_id, tool_call_id, ts_intent, ts_done FROM ops WHERE attempt_id=?",
-            (attempt_id,),
-        ).fetchone()
+        with self._lock:
+            return self._connect().execute(
+                "SELECT attempt_id, op_id, tool, args_json, status, result_json, error, "
+                "session_id, turn_id, tool_call_id, ts_intent, ts_done FROM ops WHERE attempt_id=?",
+                (attempt_id,),
+            ).fetchone()
 
     def find(self, target):
         """Return the full row for an attempt_id or op_id (in-flight rows first)."""
-        return self._connect().execute(
-            "SELECT attempt_id, op_id, tool, args_json, status, result_json, error, "
-            "session_id, turn_id, tool_call_id, ts_intent, ts_done FROM ops "
-            "WHERE attempt_id=? OR op_id=? ORDER BY (status='intent') DESC, ts_intent DESC LIMIT 1",
-            (target, target),
-        ).fetchone()
+        with self._lock:
+            return self._connect().execute(
+                "SELECT attempt_id, op_id, tool, args_json, status, result_json, error, "
+                "session_id, turn_id, tool_call_id, ts_intent, ts_done FROM ops "
+                "WHERE attempt_id=? OR op_id=? ORDER BY (status='intent') DESC, ts_intent DESC, rowid DESC LIMIT 1",
+                (target, target),
+            ).fetchone()
 
     def get_pre_fp(self, attempt_id) -> dict | None:
-        row = self._connect().execute(
-            "SELECT pre_fp_json FROM ops WHERE attempt_id=?",
-            (attempt_id,),
-        ).fetchone()
+        with self._lock:
+            row = self._connect().execute(
+                "SELECT pre_fp_json FROM ops WHERE attempt_id=?",
+                (attempt_id,),
+            ).fetchone()
         if not row or not row[0]:
             return None
         try:
@@ -391,16 +466,21 @@ class Journal:
             return None
 
     def latest_pre_fp(self, op_id: str, session_id: str | None = None) -> dict | None:
-        if session_id:
-            row = self._connect().execute(
-                "SELECT pre_fp_json FROM ops WHERE op_id = ? AND session_id = ? AND pre_fp_json IS NOT NULL ORDER BY ts_intent DESC LIMIT 1",
-                (op_id, session_id),
-            ).fetchone()
-        else:
-            row = self._connect().execute(
-                "SELECT pre_fp_json FROM ops WHERE op_id = ? AND (session_id IS NULL OR session_id='') AND pre_fp_json IS NOT NULL ORDER BY ts_intent DESC LIMIT 1",
-                (op_id,),
-            ).fetchone()
+        with self._lock:
+            if session_id:
+                row = self._connect().execute(
+                    "SELECT pre_fp_json FROM ops "
+                    "WHERE op_id = ? AND session_id = ? AND pre_fp_json IS NOT NULL AND status != 'deduped' "
+                    "ORDER BY ts_intent DESC, rowid DESC LIMIT 1",
+                    (op_id, session_id),
+                ).fetchone()
+            else:
+                row = self._connect().execute(
+                    "SELECT pre_fp_json FROM ops "
+                    "WHERE op_id = ? AND (session_id IS NULL OR session_id='') AND pre_fp_json IS NOT NULL AND status != 'deduped' "
+                    "ORDER BY ts_intent DESC, rowid DESC LIMIT 1",
+                    (op_id,),
+                ).fetchone()
         if not row or not row[0]:
             return None
         try:
@@ -413,52 +493,44 @@ class Journal:
         """Prune ops older than max_age_days or exceeding max_rows (excluding in-flight rows)."""
         with self._lock:
             c = self._connect()
-            cutoff_ts = time.time() - (max_age_days * 86400)
+            cutoff_ts = time.time() - (max(0, max_age_days) * 86400)
             cursor = c.execute(
                 "DELETE FROM ops WHERE status != 'intent' AND ("
                 "  ts_intent < ? OR attempt_id NOT IN ("
-                "    SELECT attempt_id FROM ops ORDER BY ts_intent DESC LIMIT ?"
+                "    SELECT attempt_id FROM ops ORDER BY ts_intent DESC, rowid DESC LIMIT ?"
                 "  )"
                 ")",
                 (cutoff_ts, max(1, max_rows)),
             )
             deleted = cursor.rowcount if cursor.rowcount > 0 else 0
             if deleted > 0:
+                c.execute(
+                    "DELETE FROM fingerprints WHERE attempt_id NOT IN (SELECT attempt_id FROM ops)"
+                )
                 self._commit(c)
             return deleted
 
     def recent(self, limit: int = 25) -> list[dict]:
-        rows = self._connect().execute(
-            "SELECT attempt_id, op_id, tool, args_json, status, result_json, error, "
-            "session_id, turn_id, ts_intent, ts_done FROM ("
-            "  SELECT attempt_id, op_id, tool, args_json, status, result_json, error, "
-            "  session_id, turn_id, ts_intent, ts_done, rowid FROM ops "
-            "  ORDER BY ts_intent DESC, rowid DESC LIMIT ?"
-            ") ORDER BY ts_intent ASC, rowid ASC",
-            (limit,),
-        ).fetchall()
+        with self._lock:
+            rows = self._connect().execute(
+                "SELECT attempt_id, op_id, tool, args_json, status, result_json, error, "
+                "session_id, turn_id, ts_intent, ts_done FROM ("
+                "  SELECT attempt_id, op_id, tool, args_json, status, result_json, error, "
+                "  session_id, turn_id, ts_intent, ts_done, rowid FROM ops "
+                "  ORDER BY ts_intent DESC, rowid DESC LIMIT ?"
+                ") ORDER BY ts_intent ASC, rowid ASC",
+                (limit,),
+            ).fetchall()
         out = []
         for r in rows:
-            args = None
-            if r[3]:
-                try:
-                    args = json.loads(r[3])
-                except Exception:
-                    args = r[3]
-            res = None
-            if r[5] is not None:
-                try:
-                    res = json.loads(r[5])
-                except Exception:
-                    res = r[5]
             out.append({
                 "attempt_id": r[0],
                 "op_id": r[1],
                 "tool": r[2],
-                "args": args,
+                "args": self._parse_json_redacted(r[3]),
                 "status": r[4],
-                "result": res,
-                "error": r[6],
+                "result": self._parse_json_redacted(r[5]),
+                "error": redact_secrets(r[6]) if r[6] is not None else None,
                 "session_id": r[7],
                 "turn_id": r[8],
                 "ts_intent": r[9],
@@ -468,13 +540,7 @@ class Journal:
 
     @classmethod
     def _redact_parsed(cls, obj: Any) -> Any:
-        if isinstance(obj, str):
-            return redact_secrets(obj)
-        if isinstance(obj, list):
-            return [cls._redact_parsed(item) for item in obj]
-        if isinstance(obj, dict):
-            return {k: cls._redact_parsed(v) for k, v in obj.items()}
-        return obj
+        return _redact_structure(obj)
 
     @classmethod
     def _parse_json_redacted(cls, raw: str | None) -> Any:
@@ -503,11 +569,13 @@ class Journal:
             params.append(str(status).strip())
 
         if query is not None and str(query).strip():
-            q = f"%{str(query).strip()}%"
+            raw_q = str(query).strip()
+            escaped_q = raw_q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            q = f"%{escaped_q}%"
             clauses.append(
-                "(o.tool LIKE ? OR o.op_id LIKE ? OR o.attempt_id LIKE ? "
-                "OR o.args_json LIKE ? OR COALESCE(o.result_json, '') LIKE ? "
-                "OR COALESCE(o.error, '') LIKE ? OR COALESCE(o.session_id, '') LIKE ?)"
+                r"(o.tool LIKE ? ESCAPE '\' OR o.op_id LIKE ? ESCAPE '\' OR o.attempt_id LIKE ? ESCAPE '\' "
+                r"OR o.args_json LIKE ? ESCAPE '\' OR COALESCE(o.result_json, '') LIKE ? ESCAPE '\' "
+                r"OR COALESCE(o.error, '') LIKE ? ESCAPE '\' OR COALESCE(o.session_id, '') LIKE ? ESCAPE '\')"
             )
             params.extend([q, q, q, q, q, q, q])
 
@@ -558,11 +626,11 @@ class Journal:
         return out
 
     def db_bytes(self) -> int:
-        """Return total size in bytes of the SQLite database file and its WAL sidecar."""
+        """Return total size in bytes of the SQLite database file and its WAL/SHM sidecars."""
         if self.db_path == ":memory:":
             return 0
         total = 0
-        for p in (Path(self.db_path), Path(f"{self.db_path}-wal")):
+        for p in (Path(self.db_path), Path(f"{self.db_path}-wal"), Path(f"{self.db_path}-shm")):
             try:
                 if p.exists():
                     total += p.stat().st_size
@@ -571,22 +639,24 @@ class Journal:
         return total
 
     def stats(self) -> dict:
-        c = self._connect()
-        total = c.execute("SELECT COUNT(*) FROM ops WHERE attempt_id NOT LIKE '%_recov'").fetchone()[0]
-        committed = c.execute(
-            "SELECT COUNT(*) FROM ops WHERE status IN ('ok','resumed','recovered_landed') AND attempt_id NOT LIKE '%_recov'"
-        ).fetchone()[0]
-        errors = c.execute("SELECT COUNT(*) FROM ops WHERE status='error' AND attempt_id NOT LIKE '%_recov'").fetchone()[0]
-        in_flight = c.execute("SELECT COUNT(*) FROM ops WHERE status='intent'").fetchone()[0]
-        deduped = c.execute("SELECT COUNT(*) FROM ops WHERE status='deduped' AND attempt_id NOT LIKE '%_recov'").fetchone()[0]
-        recovered_landed = c.execute(
-            "SELECT COUNT(*) FROM ops WHERE status='recovered_landed' AND attempt_id NOT LIKE '%_recov'"
-        ).fetchone()[0]
-        return {
-            "total": total,
-            "committed": committed,
-            "errors": errors,
-            "in_flight": in_flight,
-            "deduped": deduped,
-            "recovered_landed": recovered_landed,
-        }
+        with self._lock:
+            c = self._connect()
+            recov_filter = r"attempt_id NOT LIKE '%\_recov' ESCAPE '\'"
+            total = c.execute(f"SELECT COUNT(*) FROM ops WHERE {recov_filter}").fetchone()[0]
+            committed = c.execute(
+                f"SELECT COUNT(*) FROM ops WHERE status IN ('ok','resumed','recovered_landed') AND {recov_filter}"
+            ).fetchone()[0]
+            errors = c.execute(f"SELECT COUNT(*) FROM ops WHERE status='error' AND {recov_filter}").fetchone()[0]
+            in_flight = c.execute(f"SELECT COUNT(*) FROM ops WHERE status='intent' AND {recov_filter}").fetchone()[0]
+            deduped = c.execute(f"SELECT COUNT(*) FROM ops WHERE status='deduped' AND {recov_filter}").fetchone()[0]
+            recovered_landed = c.execute(
+                f"SELECT COUNT(*) FROM ops WHERE status='recovered_landed' AND {recov_filter}"
+            ).fetchone()[0]
+            return {
+                "total": total,
+                "committed": committed,
+                "errors": errors,
+                "in_flight": in_flight,
+                "deduped": deduped,
+                "recovered_landed": recovered_landed,
+            }

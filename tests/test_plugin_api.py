@@ -200,9 +200,70 @@ class TestPluginApiEndpoints(unittest.TestCase):
         self.assertEqual(wt_res["report"], fake_report)
 
         self.assertEqual(status_res["windtunnel_verdict"], "6/6 PASS")
+        self.assertEqual(status_res["windtunnel_report"], fake_report)
         self.assertIsNotNone(status_res["last_windtunnel_at"])
         self.assertEqual(self.app.journal.get_meta("windtunnel_verdict"), "6/6 PASS")
         self.assertTrue(bool(self.app.journal.get_meta("last_windtunnel_at")))
+
+
+class TestPackageRelativeImportCompliance(unittest.TestCase):
+    def test_no_sys_path_insert_in_plugin_api(self) -> None:
+        src = (PLUGIN_ROOT / "dashboard" / "plugin_api.py").read_text(encoding="utf-8")
+        self.assertNotIn("sys.path.insert", src)
+
+    def test_standalone_spec_loader_without_mutating_sys_path(self) -> None:
+        import importlib.util
+
+        api_path = PLUGIN_ROOT / "dashboard" / "plugin_api.py"
+        spec = importlib.util.spec_from_file_location("hermes_dashboard_plugin_phoenix", str(api_path))
+        self.assertIsNotNone(spec)
+        assert spec is not None and spec.loader is not None
+
+        mod = importlib.util.module_from_spec(spec)
+        saved_path = list(sys.path)
+        clean_path = [p for p in saved_path if p not in (str(REPO_PARENT), str(PLUGIN_ROOT))]
+        saved_mod = sys.modules.pop("hermes_dashboard_plugin_phoenix", None)
+        try:
+            sys.path[:] = clean_path
+            spec.loader.exec_module(mod)
+            self.assertEqual(sys.path, clean_path)
+            app = mod._get_app()
+            self.assertTrue(hasattr(app, "_journal"))
+            wt_runner = mod._get_windtunnel_runner()
+            self.assertTrue(callable(wt_runner))
+
+            # Verify profile-scoped root prevents prefix collision and shares runner
+            other_core = types.ModuleType("hermes_plugins.phoenix_other.core")
+            other_core.get_app = lambda: "WRONG_APP"
+            prof_core = types.ModuleType("hermes_plugins.phoenix__prof1.core")
+            prof_app = MagicMock(name="prof_app")
+            prof_core.get_app = lambda: prof_app
+            prof_wt = types.ModuleType("hermes_plugins.phoenix__prof1.windtunnel")
+            prof_wt.run_windtunnel_suite = lambda **kw: {"prof": True}
+
+            with patch.dict(
+                sys.modules,
+                {
+                    "hermes_plugins.phoenix_other.core": other_core,
+                    "hermes_plugins.phoenix__prof1.core": prof_core,
+                    "hermes_plugins.phoenix__prof1.windtunnel": prof_wt,
+                },
+            ):
+                saved_direct = sys.modules.pop("hermes_plugins.phoenix.core", None)
+                saved_wt = sys.modules.pop("hermes_plugins.phoenix.windtunnel", None)
+                try:
+                    self.assertIs(mod._get_app(), prof_app)
+                    self.assertEqual(mod._get_windtunnel_runner()(), {"prof": True})
+                finally:
+                    if saved_direct is not None:
+                        sys.modules["hermes_plugins.phoenix.core"] = saved_direct
+                    if saved_wt is not None:
+                        sys.modules["hermes_plugins.phoenix.windtunnel"] = saved_wt
+        finally:
+            sys.path[:] = saved_path
+            sys.modules.pop("hermes_dashboard_plugin_phoenix", None)
+            if saved_mod is not None:
+                sys.modules["hermes_dashboard_plugin_phoenix"] = saved_mod
 
 
 if __name__ == "__main__":

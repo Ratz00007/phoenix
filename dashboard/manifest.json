@@ -1,7 +1,6 @@
 {
   "name": "phoenix",
   "label": "Phoenix",
-  "title": "Phoenix WAL & Wind Tunnel",
   "description": "Crash-proof SQLite WAL ledger, pre/post state fingerprinting, and ReplayLab ddmin wind tunnel",
   "icon": "Shield",
   "version": "2.0.0",

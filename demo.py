@@ -1,6 +1,6 @@
 """Phoenix crash-recovery & deterministic fault-injection wind tunnel rehearsal.
 
-Runs the exact flow the demo video and benchmarks showcase against a real SQLite WAL file:
+Runs the deterministic crash-recovery and Wind Tunnel rehearsal against a real SQLite WAL file:
 
   Act 1 (Pre-commit crash -> /recover replays once):
     - a.txt commits via middleware.
@@ -17,7 +17,7 @@ Runs the exact flow the demo video and benchmarks showcase against a real SQLite
   Act 3 (ReplayLab Wind Tunnel + ddmin + Live Idempotency Guard):
     - Runs deterministic fault-injection suite (runs=5).
     - Injects timeouts, 429 rate limits, and malformed payloads at the tool boundary.
-    - Delta debugging (ddmin) shrinks 11-step failures to 1 step in <2ms with 0 LLM calls.
+    - Delta debugging (ddmin) shrinks 8-step failures to 1 step in milliseconds with 0 LLM calls.
     - Verifies 5/5 RED unguarded -> 0/5 RED (5/5 GREEN) with Phoenix Guard ON.
 
   Act 4 (Standalone Dark-Mode HTML Forensic Report):
@@ -203,6 +203,8 @@ def main() -> None:
             html_arg = "phoenix-report.html"
 
     workdir = Path(tempfile.mkdtemp(prefix="phoenix-demo-", dir=tempfile.gettempdir()))
+    prev_data_dir = os.environ.get("PHOENIX_DATA_DIR")
+    prev_db_path = os.environ.get("PHOENIX_DB_PATH")
     os.environ["PHOENIX_DATA_DIR"] = str(workdir / "data")
     os.environ.pop("PHOENIX_DB_PATH", None)  # force the on-disk WAL file, not :memory:
 
@@ -362,13 +364,13 @@ def main() -> None:
         print("  6. terminal('git commit -m \"feat: auth\"')       [mutate]")
         print("  7. write_file('dist/bundle.js')                  [mutate - POST-COMMIT TIMEOUT FAULT]")
         print("  8. terminal('pytest --cov')                      [read]")
-        print("\nTesting 5 production-shaped faults with Zeller ddmin counterexample minimizer...")
+        print("\nRunning 6-check fault-injection suite (timeout_after_commit, rate_limit_429, malformed_payload) with Zeller ddmin...")
 
         wt_report = phx.windtunnel.run_windtunnel_suite(runs=5, journal=app3.journal)
         print(phx.windtunnel.format_windtunnel_report(wt_report))
 
         assert wt_report.get("passed") is True, f"Wind tunnel suite failed: {wt_report}"
-        print("Act 3 PASS: Wind tunnel suite passed (5/5 RED unguarded -> ddmin shrunk -> 5/5 GREEN guarded).")
+        print("Act 3 PASS: Wind tunnel suite passed (5/5 RED unguarded -> ddmin shrunk to 1 step -> 0/5 RED guarded).")
 
         # =====================================================================
         # ACT 4: Standalone Dark-Mode HTML Forensic Report
@@ -419,6 +421,14 @@ def main() -> None:
                             a.journal.close()
                     except Exception:
                         pass
+        if prev_data_dir is None:
+            os.environ.pop("PHOENIX_DATA_DIR", None)
+        else:
+            os.environ["PHOENIX_DATA_DIR"] = prev_data_dir
+        if prev_db_path is None:
+            os.environ.pop("PHOENIX_DB_PATH", None)
+        else:
+            os.environ["PHOENIX_DB_PATH"] = prev_db_path
         shutil.rmtree(workdir, ignore_errors=True)
 
 

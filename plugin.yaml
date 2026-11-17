@@ -1,7 +1,7 @@
 name: phoenix
 version: "2.0.0"
 description: "Crash-proof execution journal, idempotency guard, and deterministic fault-injection wind tunnel for Hermes agents."
-author: "Phoenix"
+author: "Ratz00007"
 kind: standalone
 requires_hermes: ">=0.21.6"
 provides_tools:

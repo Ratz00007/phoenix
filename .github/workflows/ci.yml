@@ -4,17 +4,44 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Manifest & version parity check
+        run: |
+          python - <<'EOF'
+          import json, re, tomllib
+          from pathlib import Path
+          py = tomllib.loads(Path("pyproject.toml").read_text())
+          dash = json.loads(Path("dashboard/manifest.json").read_text())
+          yaml_ver = re.search(r'^version:\s*["\']?([^"\'\s]+)', Path("plugin.yaml").read_text(), re.M).group(1)
+          assert py["project"]["version"] == dash["version"] == yaml_ver, (py["project"]["version"], dash["version"], yaml_ver)
+          print("Version parity verified:", yaml_ver)
+          EOF
+      - name: JS syntax check
+        run: node --check desktop/plugin.js dashboard/dist/index.js
       - name: Unit tests
         run: python -m unittest discover -s tests -v
       - name: Self-check (mirrors hermes plugins doctor)
         run: python selfcheck.py
+      - name: Full audit suite (judge_eval)
+        run: python judge_eval.py
       - name: End-to-end crash-recovery & Wind Tunnel demo
-        run: python demo.py
+        run: |
+          python demo.py
+          python demo.py --chaos

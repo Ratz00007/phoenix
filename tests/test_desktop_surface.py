@@ -91,6 +91,12 @@ class TestDesktopSurface(unittest.TestCase):
         self.assertIn("/status", src)
         self.assertNotIn("TabsContent", src)
         self.assertNotIn("ctx.navigate", src)
+        self.assertNotIn("DecodeText", src)
+        self.assertIn("useValue", src)
+        self.assertIn("host.state.viewport", src)
+        self.assertIn("formatAgo", src)
+        self.assertIn("overflowY: 'auto'", src)
+        self.assertIn("collapsible: true", src)
 
     def test_dashboard_bundle_sdk_contract(self) -> None:
         src = DASHBOARD_BUNDLE.read_text(encoding="utf-8")
@@ -101,6 +107,8 @@ class TestDesktopSurface(unittest.TestCase):
         self.assertIn("/api/plugins/phoenix/status", src)
         self.assertIn("/api/plugins/phoenix/timeline", src)
         self.assertIn("/api/plugins/phoenix/windtunnel", src)
+        self.assertIn("AbortController", src)
+        self.assertIn("timelineError", src)
         self.assertNotIn("window.React", src)
         self.assertNotIn("registerPanel", src)
 
@@ -113,6 +121,7 @@ class TestDesktopSurface(unittest.TestCase):
         self.assertEqual(data["api"], "plugin_api.py")
         self.assertEqual(data["icon"], "Shield")
         self.assertEqual(data["tab"]["path"], "/phoenix")
+        self.assertNotIn("title", data)
 
     def test_desktop_plugin_uses_valid_theme_tokens(self) -> None:
         src = DESKTOP_PLUGIN.read_text(encoding="utf-8")
@@ -160,6 +169,8 @@ class TestDesktopSurface(unittest.TestCase):
             re.search(r"--ui-", src),
             "Dead --ui-* CSS token found in dashboard/dist/index.js",
         )
+        self.assertNotIn("#fca5a5", src)
+        self.assertNotIn("rgba(239, 68, 68, 0.12)", src)
         for token in (
             "--background-base",
             "--color-card",

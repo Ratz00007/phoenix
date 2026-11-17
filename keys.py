@@ -109,11 +109,21 @@ def _extract_target_paths(tool_name: str, args) -> list[str]:
         cmd = args["command"]
         for m in re.finditer(r">{1,2}\s*(?:'([^']+)'|\"([^\"]+)\"|([^\s'\";|&>]+))", cmd):
             target_p = (m.group(1) or m.group(2) or m.group(3) or "").strip()
-            if target_p and target_p != "/dev/null" and target_p not in paths:
+            if (
+                target_p
+                and target_p not in ("/dev/null", "/dev/stdout", "/dev/stderr")
+                and not target_p.startswith(("&", "-"))
+                and target_p not in paths
+            ):
                 paths.append(target_p)
         for m in re.finditer(r"\btee\s+(?:-a\s+)?(?:'([^']+)'|\"([^\"]+)\"|([^\s'\";|&>]+))", cmd):
             target_p = (m.group(1) or m.group(2) or m.group(3) or "").strip()
-            if target_p and target_p != "/dev/null" and target_p not in paths:
+            if (
+                target_p
+                and target_p not in ("/dev/null", "/dev/stdout", "/dev/stderr")
+                and not target_p.startswith(("&", "-"))
+                and target_p not in paths
+            ):
                 paths.append(target_p)
 
     return paths
@@ -297,9 +307,13 @@ def is_target_fully_committed(
         try:
             if not p.is_file():
                 return False
-            file_text = p.read_text(encoding="utf-8", errors="replace")
+            file_bytes = p.read_bytes()
+            actual_sha = hashlib.sha256(file_bytes).hexdigest()
+            file_text = file_bytes.decode("utf-8", errors="replace")
         except OSError:
             return False
+
+        pre_sha = pre_fp.get("sha256") if isinstance(pre_fp, dict) else None
 
         diff_str = (
             args.get("patch")
@@ -307,10 +321,29 @@ def is_target_fully_committed(
             or args.get("content")
             or ""
         )
+        repl_key_present = any(k in args for k in ("Replacement", "replacement", "new_str", "new_string"))
+        repl = None
+        for k in ("Replacement", "replacement", "new_str", "new_string"):
+            if k in args and isinstance(args[k], str):
+                repl = args[k]
+                break
+        old_target = (
+            args.get("OldString")
+            or args.get("old_str")
+            or args.get("old_string")
+            or args.get("TargetContent")
+        )
+
         if not isinstance(diff_str, str) or not diff_str.strip():
-            repl = args.get("Replacement") or args.get("replacement") or args.get("new_str") or args.get("new_string")
             if isinstance(repl, str) and repl.strip():
+                if pre_sha is not None and actual_sha == pre_sha:
+                    return False
                 return repl.strip() in file_text
+            if repl_key_present and (repl is None or repl == "") and isinstance(old_target, str) and old_target.strip():
+                if pre_sha is not None and actual_sha == pre_sha:
+                    return False
+                old_lines = [l.strip() for l in old_target.splitlines() if l.strip()]
+                return bool(old_lines) and all(l not in file_text for l in old_lines)
             return False
 
         added_lines = [
@@ -319,11 +352,26 @@ def is_target_fully_committed(
             if line.startswith("+") and not line.startswith("+++")
         ]
         non_empty_added = [l for l in added_lines if l]
+        removed_lines = [
+            line[1:].strip()
+            for line in diff_str.splitlines()
+            if line.startswith("-") and not line.startswith("---")
+        ]
+        non_empty_removed = [l for l in removed_lines if l]
+
         if non_empty_added:
+            if pre_sha is not None and actual_sha == pre_sha:
+                return False
             return all(l in file_text for l in non_empty_added)
 
-        repl = args.get("Replacement") or args.get("replacement") or args.get("new_str") or args.get("new_string")
+        if non_empty_removed:
+            if pre_sha is not None and actual_sha == pre_sha:
+                return False
+            return all(l not in file_text for l in non_empty_removed)
+
         if isinstance(repl, str) and repl.strip():
+            if pre_sha is not None and actual_sha == pre_sha:
+                return False
             return repl.strip() in file_text
 
         return False

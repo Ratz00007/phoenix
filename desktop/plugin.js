@@ -4,7 +4,6 @@ import {
   Badge,
   Button,
   CopyButton,
-  DecodeText,
   EmptyState,
   ErrorState,
   PANES_AREA,
@@ -20,13 +19,22 @@ import {
   TabsList,
   TabsTrigger,
   Tip,
+  formatAgo,
   haptic,
   host,
-  relativeTime,
   useMutation,
   useQuery,
   useQueryClient,
+  useValue,
 } from '@hermes/plugin-sdk';
+
+const AGO_LABELS = {
+  ageNow: 'just now',
+  ageSeconds: (s) => `${s}s ago`,
+  ageMinutes: (m) => `${m}m ago`,
+  ageHours: (h) => `${h}h ago`,
+  ageDays: (d) => `${d}d ago`,
+};
 
 const STATUS_FILTERS = ['all', 'intent', 'ok', 'deduped', 'recovered_landed', 'resumed', 'error'];
 
@@ -70,7 +78,7 @@ function formatRelTime(ts) {
     return null;
   }
   try {
-    return relativeTime(ms);
+    return formatAgo(ms, AGO_LABELS);
   } catch {
     return String(ts);
   }
@@ -195,7 +203,7 @@ function KpiCard({ label, value, color, dotTone, sublabel }) {
           color: color || 'var(--ui-text-primary)',
           fontVariantNumeric: 'tabular-nums',
         },
-        children: jsx(DecodeText, { text: String(value) }),
+        children: String(value),
       }),
       sublabel
         ? jsx('div', {
@@ -213,7 +221,7 @@ function KpiCard({ label, value, color, dotTone, sublabel }) {
   });
 }
 
-function ForensicInspector({ event }) {
+function ForensicInspector({ event, isNarrow = false }) {
   if (!event) {
     return jsx(EmptyState, {
       title: 'Select a WAL event',
@@ -236,6 +244,7 @@ function ForensicInspector({ event }) {
       flexDirection: 'column',
       gap: '14px',
       padding: '16px',
+      minWidth: 0,
     },
     children: [
       jsxs('div', {
@@ -248,7 +257,7 @@ function ForensicInspector({ event }) {
         },
         children: [
           jsxs('div', {
-            style: { display: 'flex', alignItems: 'center', gap: '8px' },
+            style: { display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 },
             children: [
               jsx(StatusDot, { tone: statusDotTone(event.status) }),
               jsx('span', {
@@ -295,6 +304,7 @@ function ForensicInspector({ event }) {
               border: '1px solid var(--ui-stroke-secondary)',
               borderRadius: '8px',
               padding: '10px 12px',
+              minWidth: 0,
             },
             children: [
               jsxs('div', {
@@ -309,7 +319,7 @@ function ForensicInspector({ event }) {
                     style: { fontSize: '11px', color: 'var(--ui-text-tertiary)', fontWeight: 600 },
                     children: 'ATTEMPT ID',
                   }),
-                  jsx(CopyButton, { text: attemptId, appearance: 'inline', buttonSize: 'xs' }),
+                  attemptId !== '—' ? jsx(CopyButton, { text: attemptId, appearance: 'inline' }) : null,
                 ],
               }),
               jsx('div', {
@@ -329,6 +339,7 @@ function ForensicInspector({ event }) {
               border: '1px solid var(--ui-stroke-secondary)',
               borderRadius: '8px',
               padding: '10px 12px',
+              minWidth: 0,
             },
             children: [
               jsxs('div', {
@@ -343,7 +354,7 @@ function ForensicInspector({ event }) {
                     style: { fontSize: '11px', color: 'var(--ui-text-tertiary)', fontWeight: 600 },
                     children: 'OP ID / IDEMPOTENCY KEY',
                   }),
-                  jsx(CopyButton, { text: idempKey, appearance: 'inline', buttonSize: 'xs' }),
+                  idempKey !== '—' ? jsx(CopyButton, { text: idempKey, appearance: 'inline' }) : null,
                 ],
               }),
               jsx('div', {
@@ -365,6 +376,7 @@ function ForensicInspector({ event }) {
           border: '1px solid var(--ui-stroke-secondary)',
           borderRadius: '8px',
           padding: '12px',
+          minWidth: 0,
         },
         children: [
           jsxs('div', {
@@ -385,7 +397,7 @@ function ForensicInspector({ event }) {
           jsxs('div', {
             style: {
               display: 'grid',
-              gridTemplateColumns: '1fr 1fr',
+              gridTemplateColumns: isNarrow ? '1fr' : '1fr 1fr',
               gap: '8px',
               fontSize: '11px',
               fontFamily: 'var(--font-mono, monospace)',
@@ -394,6 +406,7 @@ function ForensicInspector({ event }) {
               jsxs('div', {
                 style: {
                   padding: '8px',
+                  minWidth: 0,
                   borderRadius: '6px',
                   background: 'var(--ui-control-hover-background, transparent)',
                   border: '1px solid var(--ui-stroke-secondary)',
@@ -413,6 +426,7 @@ function ForensicInspector({ event }) {
               jsxs('div', {
                 style: {
                   padding: '8px',
+                  minWidth: 0,
                   borderRadius: '6px',
                   background: 'var(--ui-control-hover-background, transparent)',
                   border: '1px solid var(--ui-stroke-secondary)',
@@ -673,6 +687,8 @@ function WindTunnelLab({ ctx, initialReport }) {
 
 function createPhoenixFlightRecorder(ctx) {
   return function PhoenixFlightRecorderPage() {
+    const viewport = useValue(host.state.viewport);
+    const isNarrow = Boolean(viewport && (viewport.narrow || viewport.width < 820));
     const [activeTab, setActiveTab] = useState('recorder');
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState('all');
@@ -686,16 +702,11 @@ function createPhoenixFlightRecorder(ctx) {
 
     const timelineQuery = useQuery({
       queryKey: ['phoenix', 'timeline'],
-      queryFn: async () => {
-        try {
-          return await ctx.rest('/timeline');
-        } catch {
-          return null;
-        }
-      },
+      queryFn: () => ctx.rest('/timeline'),
       refetchInterval: 4000,
     });
 
+    const isLoading = statusQuery.isLoading && !statusQuery.data;
     const statusData = statusQuery.data || {};
     const stats = statusData.stats || statusData;
     const guardOn = statusData.guard_enabled !== undefined ? Boolean(statusData.guard_enabled) : false;
@@ -764,10 +775,19 @@ function createPhoenixFlightRecorder(ctx) {
       });
     }
 
+    const timelineErrMsg =
+      timelineQuery.isError && !timelineQuery.data
+        ? String(
+            timelineQuery.error && timelineQuery.error.message
+              ? timelineQuery.error.message
+              : timelineQuery.error
+          )
+        : null;
+
     const recorderContent = jsxs('div', {
       style: {
         display: 'grid',
-        gridTemplateColumns: 'minmax(280px, 380px) 1fr',
+        gridTemplateColumns: isNarrow ? '1fr' : 'minmax(280px, 380px) 1fr',
         gap: '12px',
         marginTop: '12px',
         minHeight: '420px',
@@ -783,9 +803,11 @@ function createPhoenixFlightRecorder(ctx) {
             borderRadius: '10px',
             padding: '12px',
             minHeight: 0,
+            minWidth: 0,
           },
           children: [
             jsx(SearchField, {
+              variant: 'box',
               value: search,
               onChange: (val) => setSearch(typeof val === 'string' ? val : val && val.target ? val.target.value : ''),
               placeholder: 'Filter tool, op_id, attempt_id...',
@@ -800,8 +822,10 @@ function createPhoenixFlightRecorder(ctx) {
                 jsx(
                   Button,
                   {
+                    type: 'button',
                     size: 'xs',
                     variant: statusFilter === st ? 'default' : 'ghost',
+                    'aria-pressed': statusFilter === st,
                     onClick: () => {
                       haptic('selection');
                       setStatusFilter(st);
@@ -813,6 +837,12 @@ function createPhoenixFlightRecorder(ctx) {
               ),
             }),
             jsx(Separator, {}),
+            timelineErrMsg
+              ? jsx(ErrorState, {
+                  title: 'Timeline sync error',
+                  description: timelineErrMsg,
+                })
+              : null,
             jsx(ScrollArea, {
               style: { maxHeight: '420px' },
               children:
@@ -832,6 +862,7 @@ function createPhoenixFlightRecorder(ctx) {
                           'button',
                           {
                             type: 'button',
+                            'aria-current': isSelected ? 'true' : undefined,
                             onClick: () => {
                               haptic('selection');
                               setSelectedId(key);
@@ -911,9 +942,10 @@ function createPhoenixFlightRecorder(ctx) {
             border: '1px solid var(--ui-stroke-secondary)',
             borderRadius: '10px',
             minHeight: 0,
+            minWidth: 0,
             overflow: 'auto',
           },
-          children: jsx(ForensicInspector, { event: selectedEvent }),
+          children: jsx(ForensicInspector, { event: selectedEvent, isNarrow }),
         }),
       ],
     });
@@ -933,6 +965,8 @@ function createPhoenixFlightRecorder(ctx) {
         gap: '16px',
         padding: '20px',
         height: '100%',
+        minHeight: 0,
+        overflowY: 'auto',
         boxSizing: 'border-box',
         color: 'var(--ui-text-primary)',
       },
@@ -949,17 +983,21 @@ function createPhoenixFlightRecorder(ctx) {
             jsxs('div', {
               style: { display: 'flex', alignItems: 'center', gap: '10px' },
               children: [
-                jsx(StatusDot, { tone: guardOn ? 'good' : 'bad' }),
+                jsx(StatusDot, { tone: isLoading ? 'muted' : (guardOn ? 'good' : 'bad') }),
                 jsx('h1', {
                   style: { margin: 0, fontSize: '18px', fontWeight: 700, color: 'var(--ui-text-primary)' },
                   children: 'Phoenix Flight Recorder',
                 }),
-                jsx(Badge, { variant: guardOn ? 'success' : 'destructive', children: guardOn ? 'GUARD ON' : 'GUARD OFF' }),
+                jsx(Badge, {
+                  variant: isLoading ? 'muted' : (guardOn ? 'success' : 'destructive'),
+                  children: isLoading ? 'LOADING...' : (guardOn ? 'GUARD ON' : 'GUARD OFF'),
+                }),
               ],
             }),
             jsx(Tip, {
               label: 'Refresh WAL state and timeline',
               children: jsx(Button, {
+                type: 'button',
                 variant: 'secondary',
                 size: 'sm',
                 onClick: () => {
@@ -1009,9 +1047,9 @@ function createPhoenixFlightRecorder(ctx) {
             }),
             jsx(KpiCard, {
               label: 'Guard Status',
-              value: guardOn ? 'ON' : 'OFF',
-              color: guardOn ? 'var(--ui-text-primary)' : 'var(--ui-text-secondary)',
-              dotTone: guardOn ? 'good' : 'bad',
+              value: isLoading ? '—' : (guardOn ? 'ON' : 'OFF'),
+              color: isLoading ? 'var(--ui-text-tertiary)' : (guardOn ? 'var(--ui-text-primary)' : 'var(--ui-text-tertiary)'),
+              dotTone: isLoading ? 'muted' : (guardOn ? 'good' : 'bad'),
               sublabel: statusData.windtunnel_verdict || 'Wind Tunnel ready',
             }),
           ],
@@ -1046,16 +1084,12 @@ function createPhoenixDrawerPane(ctx) {
     });
     const timelineQuery = useQuery({
       queryKey: ['phoenix', 'timeline'],
-      queryFn: async () => {
-        try {
-          return await ctx.rest('/timeline');
-        } catch {
-          return null;
-        }
-      },
+      queryFn: () => ctx.rest('/timeline'),
       refetchInterval: 4000,
     });
 
+    const isOffline = statusQuery.isError && !statusQuery.data;
+    const isLoading = statusQuery.isLoading && !statusQuery.data;
     const data = statusQuery.data || {};
     const stats = data.stats || data;
     const guardOn = data.guard_enabled !== undefined ? Boolean(data.guard_enabled) : false;
@@ -1082,20 +1116,30 @@ function createPhoenixDrawerPane(ctx) {
             jsxs('div', {
               style: { display: 'flex', alignItems: 'center', gap: '6px' },
               children: [
-                jsx(StatusDot, { tone: guardOn ? 'good' : 'bad' }),
+                jsx(StatusDot, { tone: isOffline ? 'bad' : (isLoading ? 'muted' : (guardOn ? 'good' : 'bad')) }),
                 jsx('span', {
                   style: { fontSize: '13px', fontWeight: 700 },
-                  children: guardOn ? 'Guard ON' : 'Guard OFF',
+                  children: isOffline ? 'Offline' : (isLoading ? 'Loading...' : (guardOn ? 'Guard ON' : 'Guard OFF')),
                 }),
               ],
             }),
             jsx(Badge, {
               variant: inFlight > 0 ? 'warn' : 'muted',
-              children: `${inFlight} in-flight`,
+              children: isOffline || isLoading ? '—' : `${inFlight} in-flight`,
             }),
           ],
         }),
         jsx(Separator, {}),
+        timelineQuery.isError && !timelineQuery.data
+          ? jsx(ErrorState, {
+              title: 'Timeline unreachable',
+              description: String(
+                timelineQuery.error && timelineQuery.error.message
+                  ? timelineQuery.error.message
+                  : timelineQuery.error
+              ),
+            })
+          : null,
         jsx(ScrollArea, {
           style: { maxHeight: '320px' },
           children:
@@ -1173,6 +1217,8 @@ function createPhoenixStatusPill(ctx) {
       refetchInterval: 5000,
     });
 
+    const isOffline = statusQuery.isError && !statusQuery.data;
+    const isLoading = statusQuery.isLoading && !statusQuery.data;
     const data = statusQuery.data || {};
     const stats = data.stats || data;
     const guardOn = data.guard_enabled !== undefined ? Boolean(data.guard_enabled) : false;
@@ -1198,9 +1244,13 @@ function createPhoenixStatusPill(ctx) {
           padding: '2px 6px',
         },
         children: [
-          jsx(StatusDot, { tone: guardOn ? 'good' : 'bad' }),
+          jsx(StatusDot, { tone: isOffline ? 'bad' : (isLoading ? 'muted' : (guardOn ? 'good' : 'bad')) }),
           jsx('span', {
-            children: `Phoenix · Guard ${guardOn ? 'ON' : 'OFF'} · ${inFlight} in-flight`,
+            children: isOffline
+              ? 'Phoenix · Offline'
+              : isLoading
+                ? 'Phoenix · Loading...'
+                : `Phoenix · Guard ${guardOn ? 'ON' : 'OFF'} · ${inFlight} in-flight`,
           }),
         ],
       }),
@@ -1221,6 +1271,7 @@ export default {
       {
         id: 'page',
         area: ROUTES_AREA,
+        title: 'Phoenix',
         data: { path: '/phoenix' },
         render: () => jsx(FlightRecorderPage, {}),
       },
@@ -1234,7 +1285,7 @@ export default {
         id: 'pane',
         area: PANES_AREA,
         title: 'Flight Recorder',
-        data: { placement: 'right', width: '320px' },
+        data: { placement: 'right', collapsible: true, width: '320px' },
         render: () => jsx(DrawerPane, {}),
       },
       {
